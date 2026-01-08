@@ -5,10 +5,12 @@ import {
   Tags, 
   ArrowLeftRight, 
   CreditCard,
-  Settings,
+  LogOut,
   TrendingUp
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { Button } from '@/components/ui/button';
 
 const menuItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
@@ -20,6 +22,7 @@ const menuItems = [
 
 export function Sidebar() {
   const location = useLocation();
+  const { signOut, user } = useAuth();
 
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 bg-sidebar border-r border-sidebar-border">
@@ -57,15 +60,17 @@ export function Sidebar() {
           })}
         </nav>
 
-        {/* Settings */}
-        <div className="border-t border-sidebar-border px-3 py-4">
-          <Link
-            to="/settings"
-            className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-all duration-200"
+        {/* User & Logout */}
+        <div className="border-t border-sidebar-border px-3 py-4 space-y-2">
+          <p className="text-xs text-sidebar-foreground/60 px-3 truncate">{user?.email}</p>
+          <Button
+            variant="ghost"
+            onClick={signOut}
+            className="w-full justify-start gap-3 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
           >
-            <Settings className="h-5 w-5" />
-            Configurações
-          </Link>
+            <LogOut className="h-5 w-5" />
+            Sair
+          </Button>
         </div>
       </div>
     </aside>
