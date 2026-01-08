@@ -6,13 +6,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Building2, Plus, Pencil, Trash2 } from 'lucide-react';
-import { mockAccounts } from '@/data/mockData';
-import { BankAccount } from '@/types/finance';
+import { Building2, Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
+import { useBankAccounts, useCreateBankAccount, useUpdateBankAccount, useDeleteBankAccount, BankAccount } from '@/hooks/useBankAccounts';
 import { cn } from '@/lib/utils';
 
 export default function Accounts() {
-  const [accounts, setAccounts] = useState<BankAccount[]>(mockAccounts);
+  const { data: accounts = [], isLoading } = useBankAccounts();
+  const createAccount = useCreateBankAccount();
+  const updateAccount = useUpdateBankAccount();
+  const deleteAccount = useDeleteBankAccount();
+
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<BankAccount | null>(null);
 
@@ -34,14 +37,13 @@ export default function Accounts() {
     }
   };
 
-  const totalBalance = accounts.reduce((acc, account) => acc + account.balance, 0);
+  const totalBalance = accounts.reduce((acc, account) => acc + Number(account.balance), 0);
 
-  const handleSaveAccount = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSaveAccount = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     
-    const newAccount: BankAccount = {
-      id: editingAccount?.id || Date.now().toString(),
+    const accountData = {
       name: formData.get('name') as string,
       bank: formData.get('bank') as string,
       type: formData.get('type') as BankAccount['type'],
@@ -50,23 +52,33 @@ export default function Accounts() {
     };
 
     if (editingAccount) {
-      setAccounts(accounts.map(a => a.id === editingAccount.id ? newAccount : a));
+      await updateAccount.mutateAsync({ id: editingAccount.id, ...accountData });
     } else {
-      setAccounts([...accounts, newAccount]);
+      await createAccount.mutateAsync(accountData);
     }
 
     setIsDialogOpen(false);
     setEditingAccount(null);
   };
 
-  const handleDeleteAccount = (id: string) => {
-    setAccounts(accounts.filter(a => a.id !== id));
+  const handleDeleteAccount = async (id: string) => {
+    await deleteAccount.mutateAsync(id);
   };
 
   const openEditDialog = (account: BankAccount) => {
     setEditingAccount(account);
     setIsDialogOpen(true);
   };
+
+  if (isLoading) {
+    return (
+      <MainLayout>
+        <div className="flex items-center justify-center h-96">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
@@ -121,7 +133,10 @@ export default function Accounts() {
                   <Label htmlFor="color">Cor</Label>
                   <Input id="color" name="color" type="color" defaultValue={editingAccount?.color || '#3B82F6'} className="h-10 w-full" />
                 </div>
-                <Button type="submit" className="w-full">
+                <Button type="submit" className="w-full" disabled={createAccount.isPending || updateAccount.isPending}>
+                  {(createAccount.isPending || updateAccount.isPending) ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : null}
                   {editingAccount ? 'Salvar Alterações' : 'Criar Conta'}
                 </Button>
               </form>
@@ -149,41 +164,47 @@ export default function Accounts() {
 
         {/* Accounts Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {accounts.map((account) => (
-            <Card key={account.id} className="glass-card p-6 hover:shadow-xl transition-shadow animate-fade-in">
-              <div className="flex items-start justify-between mb-4">
-                <div
-                  className="h-12 w-12 rounded-xl flex items-center justify-center"
-                  style={{ backgroundColor: `${account.color}20` }}
-                >
-                  <Building2 className="h-6 w-6" style={{ color: account.color }} />
-                </div>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(account)}>
-                    <Pencil className="h-4 w-4 text-muted-foreground" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDeleteAccount(account.id)}>
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold text-foreground">{account.name}</h3>
-                <p className="text-sm text-muted-foreground">{account.bank} • {getTypeLabel(account.type)}</p>
-              </div>
-
-              <div className="mt-4 pt-4 border-t border-border">
-                <p className="text-xs text-muted-foreground">Saldo Atual</p>
-                <p className={cn(
-                  "text-2xl font-bold",
-                  account.balance >= 0 ? "text-success" : "text-destructive"
-                )}>
-                  {formatCurrency(account.balance)}
-                </p>
-              </div>
+          {accounts.length === 0 ? (
+            <Card className="glass-card p-8 col-span-full text-center">
+              <p className="text-muted-foreground">Nenhuma conta cadastrada. Clique em "Nova Conta" para começar.</p>
             </Card>
-          ))}
+          ) : (
+            accounts.map((account) => (
+              <Card key={account.id} className="glass-card p-6 hover:shadow-xl transition-shadow animate-fade-in">
+                <div className="flex items-start justify-between mb-4">
+                  <div
+                    className="h-12 w-12 rounded-xl flex items-center justify-center"
+                    style={{ backgroundColor: `${account.color}20` }}
+                  >
+                    <Building2 className="h-6 w-6" style={{ color: account.color }} />
+                  </div>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(account)}>
+                      <Pencil className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDeleteAccount(account.id)}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground">{account.name}</h3>
+                  <p className="text-sm text-muted-foreground">{account.bank} • {getTypeLabel(account.type)}</p>
+                </div>
+
+                <div className="mt-4 pt-4 border-t border-border">
+                  <p className="text-xs text-muted-foreground">Saldo Atual</p>
+                  <p className={cn(
+                    "text-2xl font-bold",
+                    Number(account.balance) >= 0 ? "text-success" : "text-destructive"
+                  )}>
+                    {formatCurrency(Number(account.balance))}
+                  </p>
+                </div>
+              </Card>
+            ))
+          )}
         </div>
       </div>
     </MainLayout>
