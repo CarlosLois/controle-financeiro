@@ -6,10 +6,12 @@ import {
   ArrowLeftRight, 
   CreditCard,
   LogOut,
-  TrendingUp
+  TrendingUp,
+  Users
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCurrentMember } from '@/hooks/useOrganization';
 import { Button } from '@/components/ui/button';
 
 const menuItems = [
@@ -18,11 +20,15 @@ const menuItems = [
   { icon: Tags, label: 'Categorias', path: '/categories' },
   { icon: ArrowLeftRight, label: 'Transações', path: '/transactions' },
   { icon: CreditCard, label: 'Cartões', path: '/cards' },
+  { icon: Users, label: 'Usuários', path: '/users', adminOnly: true },
 ];
 
 export function Sidebar() {
   const location = useLocation();
   const { signOut, user } = useAuth();
+  const { data: currentMember } = useCurrentMember();
+  
+  const isAdmin = currentMember?.role === 'admin';
 
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 bg-sidebar border-r border-sidebar-border">
@@ -40,24 +46,26 @@ export function Sidebar() {
 
         {/* Navigation */}
         <nav className="flex-1 space-y-1 px-3 py-4">
-          {menuItems.map((item) => {
-            const isActive = location.pathname === item.path;
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
-                  isActive
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                )}
-              >
-                <item.icon className="h-5 w-5" />
-                {item.label}
-              </Link>
-            );
-          })}
+          {menuItems
+            .filter((item) => !item.adminOnly || isAdmin)
+            .map((item) => {
+              const isActive = location.pathname === item.path;
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
+                    isActive
+                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                  )}
+                >
+                  <item.icon className="h-5 w-5" />
+                  {item.label}
+                </Link>
+              );
+            })}
         </nav>
 
         {/* User & Logout */}

@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 export interface CreditCard {
   id: string;
   user_id: string;
+  organization_id: string | null;
   name: string;
   last_digits: string;
   credit_limit: number;
@@ -17,8 +18,17 @@ export interface CreditCard {
   updated_at: string;
 }
 
-export type CreditCardInsert = Omit<CreditCard, 'id' | 'user_id' | 'created_at' | 'updated_at'>;
+export type CreditCardInsert = Omit<CreditCard, 'id' | 'user_id' | 'organization_id' | 'created_at' | 'updated_at'>;
 export type CreditCardUpdate = Partial<CreditCardInsert>;
+
+async function getOrganizationId(userId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('organization_members')
+    .select('organization_id')
+    .eq('user_id', userId)
+    .single();
+  return data?.organization_id ?? null;
+}
 
 export function useCreditCards() {
   const { user } = useAuth();
@@ -44,9 +54,15 @@ export function useCreateCreditCard() {
 
   return useMutation({
     mutationFn: async (card: CreditCardInsert) => {
+      const organizationId = await getOrganizationId(user!.id);
+      
       const { data, error } = await supabase
         .from('credit_cards')
-        .insert({ ...card, user_id: user!.id })
+        .insert({ 
+          ...card, 
+          user_id: user!.id,
+          organization_id: organizationId
+        })
         .select()
         .single();
 

@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 export interface ExpenseCategory {
   id: string;
   user_id: string;
+  organization_id: string | null;
   name: string;
   icon: string;
   color: string;
@@ -15,8 +16,17 @@ export interface ExpenseCategory {
   updated_at: string;
 }
 
-export type CategoryInsert = Omit<ExpenseCategory, 'id' | 'user_id' | 'created_at' | 'updated_at'>;
+export type CategoryInsert = Omit<ExpenseCategory, 'id' | 'user_id' | 'organization_id' | 'created_at' | 'updated_at'>;
 export type CategoryUpdate = Partial<CategoryInsert>;
+
+async function getOrganizationId(userId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('organization_members')
+    .select('organization_id')
+    .eq('user_id', userId)
+    .single();
+  return data?.organization_id ?? null;
+}
 
 export function useCategories() {
   const { user } = useAuth();
@@ -42,9 +52,15 @@ export function useCreateCategory() {
 
   return useMutation({
     mutationFn: async (category: CategoryInsert) => {
+      const organizationId = await getOrganizationId(user!.id);
+      
       const { data, error } = await supabase
         .from('expense_categories')
-        .insert({ ...category, user_id: user!.id })
+        .insert({ 
+          ...category, 
+          user_id: user!.id,
+          organization_id: organizationId
+        })
         .select()
         .single();
 

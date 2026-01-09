@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 export interface BankAccount {
   id: string;
   user_id: string;
+  organization_id: string | null;
   name: string;
   bank: string;
   type: 'checking' | 'savings' | 'investment';
@@ -15,8 +16,17 @@ export interface BankAccount {
   updated_at: string;
 }
 
-export type BankAccountInsert = Omit<BankAccount, 'id' | 'user_id' | 'created_at' | 'updated_at'>;
+export type BankAccountInsert = Omit<BankAccount, 'id' | 'user_id' | 'organization_id' | 'created_at' | 'updated_at'>;
 export type BankAccountUpdate = Partial<BankAccountInsert>;
+
+async function getOrganizationId(userId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('organization_members')
+    .select('organization_id')
+    .eq('user_id', userId)
+    .single();
+  return data?.organization_id ?? null;
+}
 
 export function useBankAccounts() {
   const { user } = useAuth();
@@ -42,9 +52,15 @@ export function useCreateBankAccount() {
 
   return useMutation({
     mutationFn: async (account: BankAccountInsert) => {
+      const organizationId = await getOrganizationId(user!.id);
+      
       const { data, error } = await supabase
         .from('bank_accounts')
-        .insert({ ...account, user_id: user!.id })
+        .insert({ 
+          ...account, 
+          user_id: user!.id,
+          organization_id: organizationId
+        })
         .select()
         .single();
 
