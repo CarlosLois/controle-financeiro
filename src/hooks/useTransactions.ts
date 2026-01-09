@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 export interface Transaction {
   id: string;
   user_id: string;
+  organization_id: string | null;
   description: string;
   amount: number;
   type: 'income' | 'expense' | 'transfer';
@@ -18,8 +19,17 @@ export interface Transaction {
   updated_at: string;
 }
 
-export type TransactionInsert = Omit<Transaction, 'id' | 'user_id' | 'created_at' | 'updated_at'>;
+export type TransactionInsert = Omit<Transaction, 'id' | 'user_id' | 'organization_id' | 'created_at' | 'updated_at'>;
 export type TransactionUpdate = Partial<TransactionInsert>;
+
+async function getOrganizationId(userId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('organization_members')
+    .select('organization_id')
+    .eq('user_id', userId)
+    .single();
+  return data?.organization_id ?? null;
+}
 
 export function useTransactions() {
   const { user } = useAuth();
@@ -45,9 +55,15 @@ export function useCreateTransaction() {
 
   return useMutation({
     mutationFn: async (transaction: TransactionInsert) => {
+      const organizationId = await getOrganizationId(user!.id);
+      
       const { data, error } = await supabase
         .from('transactions')
-        .insert({ ...transaction, user_id: user!.id })
+        .insert({ 
+          ...transaction, 
+          user_id: user!.id,
+          organization_id: organizationId
+        })
         .select()
         .single();
 
