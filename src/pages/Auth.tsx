@@ -8,12 +8,15 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Wallet, Loader2, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { formatDocument, validateDocument } from '@/utils/documentMask';
 
 export default function Auth() {
   const { user, loading, signIn, registerOrganization, checkPasswordSet } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [needsPassword, setNeedsPassword] = useState(false);
   const [checkingPassword, setCheckingPassword] = useState(false);
+  const [document, setDocument] = useState('');
+  const [documentError, setDocumentError] = useState('');
 
   useEffect(() => {
     const checkPassword = async () => {
@@ -61,11 +64,17 @@ export default function Auth() {
     e.preventDefault();
     setIsSubmitting(true);
     const formData = new FormData(e.currentTarget);
-    const document = formData.get('document') as string;
     const name = formData.get('name') as string;
     const email = formData.get('email') as string;
     const password = formData.get('password') as string;
     const confirmPassword = formData.get('confirmPassword') as string;
+
+    // Validate document
+    if (!validateDocument(document)) {
+      setDocumentError('CNPJ ou CPF inválido');
+      setIsSubmitting(false);
+      return;
+    }
 
     if (password !== confirmPassword) {
       toast.error('As senhas não coincidem');
@@ -79,13 +88,21 @@ export default function Auth() {
       return;
     }
 
-    const { error } = await registerOrganization({ document, name, email, password });
+    // Remove formatting before saving
+    const cleanDocument = document.replace(/\D/g, '');
+    const { error } = await registerOrganization({ document: cleanDocument, name, email, password });
     if (error) {
       toast.error('Erro ao cadastrar organização: ' + error.message);
     } else {
       toast.success('Organização cadastrada! Você já está logado.');
     }
     setIsSubmitting(false);
+  };
+
+  const handleDocumentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatDocument(e.target.value);
+    setDocument(formatted);
+    setDocumentError('');
   };
 
   return (
@@ -153,9 +170,15 @@ export default function Auth() {
                   id="document"
                   name="document"
                   type="text"
-                  placeholder="00.000.000/0000-00"
+                  placeholder="000.000.000-00 ou 00.000.000/0000-00"
+                  value={document}
+                  onChange={handleDocumentChange}
+                  className={documentError ? 'border-destructive' : ''}
                   required
                 />
+                {documentError && (
+                  <p className="text-sm text-destructive">{documentError}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="name">Razão Social / Nome</Label>
