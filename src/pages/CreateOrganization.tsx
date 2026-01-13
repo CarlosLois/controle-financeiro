@@ -32,30 +32,15 @@ export default function CreateOrganization() {
     }
 
     try {
-      // Create the organization
+      // Create the organization using RPC (atomic transaction)
       const cleanDocument = document.replace(/\D/g, '');
-      const { data: orgData, error: orgError } = await supabase
-        .from('organizations')
-        .insert({
-          document: cleanDocument,
-          name: name,
-        })
-        .select()
-        .single();
-
-      if (orgError) throw orgError;
-
-      // Add user as admin of the organization
-      const { error: memberError } = await supabase
-        .from('organization_members')
-        .insert({
-          organization_id: orgData.id,
-          user_id: user!.id,
-          role: 'admin',
-          password_set: true,
+      const { error: orgError } = await supabase
+        .rpc('create_organization_for_current_user', {
+          _document: cleanDocument,
+          _name: name,
         });
 
-      if (memberError) throw memberError;
+      if (orgError) throw orgError;
 
       toast.success('Organização criada com sucesso!');
       navigate('/');
