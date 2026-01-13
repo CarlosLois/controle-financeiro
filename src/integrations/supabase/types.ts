@@ -305,6 +305,22 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_organization_for_current_user: {
+        Args: { _document: string; _name: string }
+        Returns: {
+          created_at: string
+          document: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "organizations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       get_user_organization_id: { Args: { _user_id: string }; Returns: string }
       has_org_role: {
         Args: {
