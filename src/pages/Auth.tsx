@@ -1,14 +1,21 @@
 import { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Wallet, Loader2, Building2 } from 'lucide-react';
+import { Wallet, Loader2, Building2, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDocument, validateDocument } from '@/utils/documentMask';
+
+interface FoundOrganization {
+  id: string;
+  name: string;
+  document: string;
+}
 
 export default function Auth() {
   const { user, loading, signIn, registerOrganization, checkPasswordSet } = useAuth();
@@ -17,6 +24,13 @@ export default function Auth() {
   const [checkingPassword, setCheckingPassword] = useState(false);
   const [document, setDocument] = useState('');
   const [documentError, setDocumentError] = useState('');
+
+  // Login flow state
+  const [loginStep, setLoginStep] = useState<'document' | 'credentials'>('document');
+  const [loginDocument, setLoginDocument] = useState('');
+  const [loginDocumentError, setLoginDocumentError] = useState('');
+  const [foundOrg, setFoundOrg] = useState<FoundOrganization | null>(null);
+  const [isSearchingOrg, setIsSearchingOrg] = useState(false);
 
   useEffect(() => {
     const checkPassword = async () => {
@@ -45,6 +59,50 @@ export default function Auth() {
   if (user && needsPassword) {
     return <SetPasswordForm />;
   }
+
+  const handleFindOrganization = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setIsSearchingOrg(true);
+    setLoginDocumentError('');
+
+    if (!validateDocument(loginDocument)) {
+      setLoginDocumentError('CNPJ ou CPF inválido');
+      setIsSearchingOrg(false);
+      return;
+    }
+
+    const cleanDocument = loginDocument.replace(/\D/g, '');
+
+    const { data, error } = await supabase
+      .rpc('find_organization_by_document', { _document: cleanDocument });
+
+    if (error) {
+      toast.error('Erro ao buscar organização: ' + error.message);
+      setIsSearchingOrg(false);
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      setLoginDocumentError('Organização não encontrada. Verifique o documento ou cadastre uma nova.');
+      setIsSearchingOrg(false);
+      return;
+    }
+
+    setFoundOrg(data[0] as FoundOrganization);
+    setLoginStep('credentials');
+    setIsSearchingOrg(false);
+  };
+
+  const handleLoginDocumentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatDocument(e.target.value);
+    setLoginDocument(formatted);
+    setLoginDocumentError('');
+  };
+
+  const handleBackToDocument = () => {
+    setLoginStep('document');
+    setFoundOrg(null);
+  };
 
   const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -123,38 +181,92 @@ export default function Auth() {
           </TabsList>
 
           <TabsContent value="login">
-            <form onSubmit={handleSignIn} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="login-email">Email</Label>
-                <Input
-                  id="login-email"
-                  name="email"
-                  type="email"
-                  placeholder="seu@email.com"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="login-password">Senha</Label>
-                <Input
-                  id="login-password"
-                  name="password"
-                  type="password"
-                  placeholder="••••••••"
-                  required
-                />
-              </div>
-              <Button type="submit" className="w-full" disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Entrando...
-                  </>
-                ) : (
-                  'Entrar'
+            {loginStep === 'document' ? (
+              <form onSubmit={handleFindOrganization} className="space-y-4">
+                <div className="flex items-center gap-2 mb-4 p-3 bg-primary/5 rounded-lg">
+                  <Building2 className="h-5 w-5 text-primary" />
+                  <span className="text-sm text-muted-foreground">Identificação da Organização</span>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="login-document">CNPJ ou CPF da Organização</Label>
+                  <Input
+                    id="login-document"
+                    name="document"
+                    type="text"
+                    placeholder="000.000.000-00 ou 00.000.000/0000-00"
+                    value={loginDocument}
+                    onChange={handleLoginDocumentChange}
+                    className={loginDocumentError ? 'border-destructive' : ''}
+                    required
+                  />
+                  {loginDocumentError && (
+                    <p className="text-sm text-destructive">{loginDocumentError}</p>
+                  )}
+                </div>
+                <Button type="submit" className="w-full" disabled={isSearchingOrg}>
+                  {isSearchingOrg ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Buscando...
+                    </>
+                  ) : (
+                    'Continuar'
+                  )}
+                </Button>
+              </form>
+            ) : (
+              <form onSubmit={handleSignIn} className="space-y-4">
+                <button
+                  type="button"
+                  onClick={handleBackToDocument}
+                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-2"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Voltar
+                </button>
+
+                {foundOrg && (
+                  <div className="flex items-center gap-3 p-3 bg-primary/5 rounded-lg mb-4">
+                    <CheckCircle2 className="h-5 w-5 text-primary flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{foundOrg.name}</p>
+                      <p className="text-xs text-muted-foreground">{formatDocument(foundOrg.document)}</p>
+                    </div>
+                  </div>
                 )}
-              </Button>
-            </form>
+
+                <div className="space-y-2">
+                  <Label htmlFor="login-email">Email</Label>
+                  <Input
+                    id="login-email"
+                    name="email"
+                    type="email"
+                    placeholder="seu@email.com"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="login-password">Senha</Label>
+                  <Input
+                    id="login-password"
+                    name="password"
+                    type="password"
+                    placeholder="••••••••"
+                    required
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Entrando...
+                    </>
+                  ) : (
+                    'Entrar'
+                  )}
+                </Button>
+              </form>
+            )}
           </TabsContent>
 
           <TabsContent value="register">

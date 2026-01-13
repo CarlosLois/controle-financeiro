@@ -321,6 +321,14 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      find_organization_by_document: {
+        Args: { _document: string }
+        Returns: {
+          document: string
+          id: string
+          name: string
+        }[]
+      }
       get_user_organization_id: { Args: { _user_id: string }; Returns: string }
       has_org_role: {
         Args: {
