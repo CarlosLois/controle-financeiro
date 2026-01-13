@@ -7,7 +7,8 @@ import {
   CreditCard,
   LogOut,
   TrendingUp,
-  Users
+  Users,
+  Settings
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -21,6 +22,7 @@ const menuItems = [
   { icon: ArrowLeftRight, label: 'Transações', path: '/transactions' },
   { icon: CreditCard, label: 'Cartões', path: '/cards' },
   { icon: Users, label: 'Usuários', path: '/users', adminOnly: true },
+  { icon: Settings, label: 'Configurações', path: '/settings' },
 ];
 
 export function Sidebar() {
