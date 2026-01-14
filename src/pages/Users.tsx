@@ -111,7 +111,7 @@ export default function Users() {
                     />
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    O usuário receberá um email e deverá definir sua senha no primeiro acesso.
+                    O usuário deverá definir sua senha no primeiro acesso.
                   </p>
                   <div className="flex gap-2 justify-end">
                     <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
