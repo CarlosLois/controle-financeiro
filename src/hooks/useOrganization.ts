@@ -19,6 +19,7 @@ export interface OrganizationMember {
   password_set: boolean;
   created_at: string;
   updated_at: string;
+  email?: string;
 }
 
 export function useOrganization() {
@@ -45,13 +46,26 @@ export function useOrganizationMembers() {
   return useQuery({
     queryKey: ['organization_members', user?.id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Fetch members
+      const { data: members, error } = await supabase
         .from('organization_members')
         .select('*')
         .order('created_at', { ascending: true });
 
       if (error) throw error;
-      return data as OrganizationMember[];
+
+      // Fetch emails from edge function
+      const { data: emailsData } = await supabase.functions.invoke('get-members-emails');
+      
+      const emails: Record<string, string> = emailsData?.emails || {};
+
+      // Merge emails with members
+      const membersWithEmails = (members || []).map(member => ({
+        ...member,
+        email: emails[member.user_id] || undefined,
+      }));
+
+      return membersWithEmails as OrganizationMember[];
     },
     enabled: !!user,
   });

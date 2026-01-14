@@ -179,9 +179,14 @@ export default function Users() {
                       <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
                         <User className="h-5 w-5 text-primary" />
                       </div>
-                      <span className="font-medium">
-                        {member.user_id === currentMember?.user_id ? 'Você' : `Usuário ${member.id.slice(0, 8)}`}
-                      </span>
+                      <div className="flex flex-col">
+                        <span className="font-medium">
+                          {member.email || `Usuário ${member.user_id.slice(0, 8)}`}
+                        </span>
+                        {member.user_id === currentMember?.user_id && (
+                          <span className="text-xs text-muted-foreground">Você</span>
+                        )}
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell>
