@@ -17,6 +17,8 @@ interface FoundOrganization {
   document: string;
 }
 
+type LoginStep = 'document' | 'credentials' | 'set-password';
+
 export default function Auth() {
   const { user, loading, signIn, registerOrganization, checkPasswordSet } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -26,11 +28,14 @@ export default function Auth() {
   const [documentError, setDocumentError] = useState('');
 
   // Login flow state
-  const [loginStep, setLoginStep] = useState<'document' | 'credentials'>('document');
+  const [loginStep, setLoginStep] = useState<LoginStep>('document');
   const [loginDocument, setLoginDocument] = useState('');
   const [loginDocumentError, setLoginDocumentError] = useState('');
   const [foundOrg, setFoundOrg] = useState<FoundOrganization | null>(null);
   const [isSearchingOrg, setIsSearchingOrg] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [isNewUser, setIsNewUser] = useState(false);
+  const [isCheckingUser, setIsCheckingUser] = useState(false);
 
   useEffect(() => {
     const checkPassword = async () => {
@@ -102,6 +107,93 @@ export default function Auth() {
   const handleBackToDocument = () => {
     setLoginStep('document');
     setFoundOrg(null);
+    setLoginEmail('');
+    setIsNewUser(false);
+  };
+
+  const handleBackToCredentials = () => {
+    setLoginStep('credentials');
+    setIsNewUser(false);
+  };
+
+  const handleCheckUserAndProceed = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!foundOrg) return;
+
+    setIsCheckingUser(true);
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get('email') as string;
+    setLoginEmail(email);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('check-new-user', {
+        body: { email, organizationId: foundOrg.id }
+      });
+
+      if (error) throw error;
+
+      if (!data.exists) {
+        toast.error('Usuário não encontrado nesta organização');
+        setIsCheckingUser(false);
+        return;
+      }
+
+      if (data.needsPassword) {
+        setIsNewUser(true);
+        setLoginStep('set-password');
+      } else {
+        // User exists and has password, show password field
+        setIsNewUser(false);
+      }
+    } catch (error: any) {
+      toast.error('Erro ao verificar usuário: ' + error.message);
+    }
+    setIsCheckingUser(false);
+  };
+
+  const handleSetFirstPassword = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!foundOrg) return;
+
+    setIsSubmitting(true);
+    const formData = new FormData(e.currentTarget);
+    const password = formData.get('password') as string;
+    const confirmPassword = formData.get('confirmPassword') as string;
+
+    if (password !== confirmPassword) {
+      toast.error('As senhas não coincidem');
+      setIsSubmitting(false);
+      return;
+    }
+
+    if (password.length < 6) {
+      toast.error('A senha deve ter pelo menos 6 caracteres');
+      setIsSubmitting(false);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.functions.invoke('set-first-password', {
+        body: { 
+          email: loginEmail, 
+          organizationId: foundOrg.id,
+          password 
+        }
+      });
+
+      if (error) throw error;
+
+      toast.success('Senha definida com sucesso! Fazendo login...');
+      
+      // Auto login after setting password
+      const { error: signInError } = await signIn(loginEmail, password);
+      if (signInError) {
+        toast.error('Erro ao fazer login: ' + signInError.message);
+      }
+    } catch (error: any) {
+      toast.error('Erro ao definir senha: ' + error.message);
+    }
+    setIsSubmitting(false);
   };
 
   const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -181,7 +273,7 @@ export default function Auth() {
           </TabsList>
 
           <TabsContent value="login">
-            {loginStep === 'document' ? (
+            {loginStep === 'document' && (
               <form onSubmit={handleFindOrganization} className="space-y-4">
                 <div className="flex items-center gap-2 mb-4 p-3 bg-primary/5 rounded-lg">
                   <Building2 className="h-5 w-5 text-primary" />
@@ -214,11 +306,116 @@ export default function Auth() {
                   )}
                 </Button>
               </form>
-            ) : (
-              <form onSubmit={handleSignIn} className="space-y-4">
+            )}
+
+            {loginStep === 'credentials' && (
+              <>
+                {!isNewUser ? (
+                  <form onSubmit={handleCheckUserAndProceed} className="space-y-4">
+                    <button
+                      type="button"
+                      onClick={handleBackToDocument}
+                      className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-2"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                      Voltar
+                    </button>
+
+                    {foundOrg && (
+                      <div className="flex items-center gap-3 p-3 bg-primary/5 rounded-lg mb-4">
+                        <CheckCircle2 className="h-5 w-5 text-primary flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">{foundOrg.name}</p>
+                          <p className="text-xs text-muted-foreground">{formatDocument(foundOrg.document)}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <Label htmlFor="login-email">Email</Label>
+                      <Input
+                        id="login-email"
+                        name="email"
+                        type="email"
+                        placeholder="seu@email.com"
+                        value={loginEmail}
+                        onChange={(e) => setLoginEmail(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <Button type="submit" className="w-full" disabled={isCheckingUser}>
+                      {isCheckingUser ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Verificando...
+                        </>
+                      ) : (
+                        'Continuar'
+                      )}
+                    </Button>
+                  </form>
+                ) : (
+                  <form onSubmit={handleSignIn} className="space-y-4">
+                    <button
+                      type="button"
+                      onClick={handleBackToDocument}
+                      className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-2"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                      Voltar
+                    </button>
+
+                    {foundOrg && (
+                      <div className="flex items-center gap-3 p-3 bg-primary/5 rounded-lg mb-4">
+                        <CheckCircle2 className="h-5 w-5 text-primary flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">{foundOrg.name}</p>
+                          <p className="text-xs text-muted-foreground">{formatDocument(foundOrg.document)}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <Label htmlFor="login-email">Email</Label>
+                      <Input
+                        id="login-email"
+                        name="email"
+                        type="email"
+                        value={loginEmail}
+                        readOnly
+                        className="bg-muted"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="login-password">Senha</Label>
+                      <Input
+                        id="login-password"
+                        name="password"
+                        type="password"
+                        placeholder="••••••••"
+                        required
+                      />
+                    </div>
+                    <Button type="submit" className="w-full" disabled={isSubmitting}>
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Entrando...
+                        </>
+                      ) : (
+                        'Entrar'
+                      )}
+                    </Button>
+                  </form>
+                )}
+              </>
+            )}
+
+            {loginStep === 'set-password' && (
+              <form onSubmit={handleSetFirstPassword} className="space-y-4">
                 <button
                   type="button"
-                  onClick={handleBackToDocument}
+                  onClick={handleBackToCredentials}
                   className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-2"
                 >
                   <ArrowLeft className="h-4 w-4" />
@@ -235,23 +432,42 @@ export default function Auth() {
                   </div>
                 )}
 
+                <div className="flex items-center gap-2 mb-4 p-3 bg-amber-500/10 rounded-lg">
+                  <Wallet className="h-5 w-5 text-amber-600" />
+                  <span className="text-sm text-amber-700 dark:text-amber-400">
+                    Primeiro acesso! Defina sua senha.
+                  </span>
+                </div>
+
                 <div className="space-y-2">
-                  <Label htmlFor="login-email">Email</Label>
+                  <Label htmlFor="set-email">Email</Label>
                   <Input
-                    id="login-email"
-                    name="email"
+                    id="set-email"
                     type="email"
-                    placeholder="seu@email.com"
+                    value={loginEmail}
+                    readOnly
+                    className="bg-muted"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="set-password">Nova Senha</Label>
+                  <Input
+                    id="set-password"
+                    name="password"
+                    type="password"
+                    placeholder="••••••••"
+                    minLength={6}
                     required
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="login-password">Senha</Label>
+                  <Label htmlFor="set-confirm-password">Confirmar Senha</Label>
                   <Input
-                    id="login-password"
-                    name="password"
+                    id="set-confirm-password"
+                    name="confirmPassword"
                     type="password"
                     placeholder="••••••••"
+                    minLength={6}
                     required
                   />
                 </div>
@@ -259,10 +475,10 @@ export default function Auth() {
                   {isSubmitting ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Entrando...
+                      Salvando...
                     </>
                   ) : (
-                    'Entrar'
+                    'Definir Senha e Entrar'
                   )}
                 </Button>
               </form>

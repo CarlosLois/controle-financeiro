@@ -79,12 +79,9 @@ serve(async (req: Request) => {
         throw new Error("Este usuário já é membro desta organização");
       }
     } else {
-      // Create new user with temporary password
-      const tempPassword = crypto.randomUUID();
-      
+      // Create new user without password - they will set it on first login
       const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
         email,
-        password: tempPassword,
         email_confirm: true,
       });
 
