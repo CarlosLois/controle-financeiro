@@ -81,35 +81,20 @@ export function useInviteMember() {
 
   return useMutation({
     mutationFn: async ({ email, organizationId }: { email: string; organizationId: string }) => {
-      // Create user with random password (they'll set their own on first login)
-      const tempPassword = crypto.randomUUID();
-      
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password: tempPassword,
-        options: { emailRedirectTo: window.location.origin },
+      const { data, error } = await supabase.functions.invoke('invite-member', {
+        body: { email, organizationId },
       });
 
-      if (authError) throw authError;
-      if (!authData.user) throw new Error('Falha ao criar usuário');
+      if (error) throw error;
+      if (data.error) throw new Error(data.error);
 
-      // Add to organization_members
-      const { error: memberError } = await supabase
-        .from('organization_members')
-        .insert({
-          organization_id: organizationId,
-          user_id: authData.user.id,
-          role: 'member',
-          password_set: false,
-        });
-
-      if (memberError) throw memberError;
-
-      return authData.user;
+      return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['organization_members'] });
-      toast.success('Usuário convidado com sucesso! Ele receberá um email para definir a senha.');
+      toast.success(data.isNewUser 
+        ? 'Novo usuário criado e adicionado à organização!' 
+        : 'Usuário adicionado à organização!');
     },
     onError: (error) => {
       toast.error('Erro ao convidar usuário: ' + error.message);
