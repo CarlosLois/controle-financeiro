@@ -30,6 +30,7 @@ import { useAccountFilter } from "@/contexts/AccountFilterContext";
 import { useImportBankStatement, usePendingStatementEntries } from "@/hooks/useBankStatementEntries";
 import { BankLogo } from "@/components/BankLogo";
 import { parseOFX, OFXTransaction, OFXBankInfo } from "@/utils/ofxParser";
+import { getBankNameFromCode } from "@/utils/bankLogos";
 
 interface FileWithData {
   name: string;
@@ -155,13 +156,18 @@ const ImportStatement = () => {
     setShowConfirmDialog(true);
   };
 
-  // Check if bank codes match
-  const bankCodeMatch = useMemo(() => {
-    if (!fileData?.bankInfo?.bankId || !selectedAccount?.bank) return null;
-    const fileBankCode = fileData.bankInfo.bankId.replace(/^0+/, '');
-    const accountBankCode = selectedAccount.bank.replace(/^0+/, '');
-    return fileBankCode === accountBankCode;
-  }, [fileData?.bankInfo?.bankId, selectedAccount?.bank]);
+  // Get bank name from OFX code and check if it matches account
+  const fileBankName = useMemo(() => {
+    if (!fileData?.bankInfo?.bankId) return null;
+    return getBankNameFromCode(fileData.bankInfo.bankId);
+  }, [fileData?.bankInfo?.bankId]);
+
+  const bankNameMatch = useMemo(() => {
+    if (!fileBankName || !selectedAccount?.bank) return null;
+    const accountBankNormalized = selectedAccount.bank.toLowerCase().trim();
+    const fileBankNormalized = fileBankName.toLowerCase().trim();
+    return accountBankNormalized.includes(fileBankNormalized) || fileBankNormalized.includes(accountBankNormalized);
+  }, [fileBankName, selectedAccount?.bank]);
 
   const handleConfirmImport = async () => {
     setShowConfirmDialog(false);
@@ -428,18 +434,21 @@ const ImportStatement = () => {
                   <p>Verifique se os dados do arquivo correspondem à conta selecionada:</p>
                   <div className="bg-muted p-4 rounded-lg space-y-2 text-sm">
                     <p>
-                      <strong>Código do Banco:</strong> {fileData?.bankInfo?.bankId || "-"} → {selectedAccount?.bank || "-"}
+                      <strong>Banco do arquivo:</strong> {fileBankName || "Não identificado"}
+                    </p>
+                    <p>
+                      <strong>Conta selecionada:</strong> {selectedAccount?.bank || "-"}
                     </p>
                     <p>
                       <strong>Transações:</strong> {fileData?.transactions?.length || 0} registro(s)
                     </p>
                   </div>
                   
-                  {bankCodeMatch === false && (
+                  {bankNameMatch === false && (
                     <div className="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
                       <AlertCircle className="h-5 w-5 text-yellow-600" />
                       <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                        Atenção: O código do banco no arquivo não corresponde à conta selecionada. 
+                        Atenção: O banco do arquivo ({fileBankName || "desconhecido"}) não corresponde à conta selecionada ({selectedAccount?.bank}). 
                         Deseja continuar mesmo assim?
                       </p>
                     </div>
