@@ -47,30 +47,32 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       <div className="flex h-full flex-col">
         {/* Logo */}
         <div className="flex items-center justify-between h-16 px-4 border-b border-sidebar-border">
-          <div className={cn("flex items-center gap-3", collapsed && "justify-center w-full")}>
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sidebar-primary shrink-0">
-              <TrendingUp className="h-5 w-5 text-sidebar-primary-foreground" />
-            </div>
-            {!collapsed && (
-              <div>
-                <h1 className="text-lg font-bold text-sidebar-foreground">FinanceApp</h1>
-                <p className="text-xs text-sidebar-foreground/60">Controle Financeiro</p>
+          {!collapsed ? (
+            <>
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sidebar-primary shrink-0">
+                  <TrendingUp className="h-5 w-5 text-sidebar-primary-foreground" />
+                </div>
+                <div>
+                  <h1 className="text-lg font-bold text-sidebar-foreground">FinanceApp</h1>
+                  <p className="text-xs text-sidebar-foreground/60">Controle Financeiro</p>
+                </div>
               </div>
-            )}
-          </div>
-          <button
-            onClick={onToggle}
-            className={cn(
-              "p-1.5 rounded-md hover:bg-sidebar-accent transition-colors text-sidebar-foreground/70 hover:text-sidebar-foreground",
-              collapsed && "absolute -right-3 top-6 bg-sidebar border border-sidebar-border shadow-sm"
-            )}
-          >
-            {collapsed ? (
+              <button
+                onClick={onToggle}
+                className="p-1.5 rounded-md hover:bg-sidebar-accent transition-colors text-sidebar-foreground/70 hover:text-sidebar-foreground"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={onToggle}
+              className="w-full flex justify-center p-1.5 rounded-md hover:bg-sidebar-accent transition-colors text-sidebar-foreground/70 hover:text-sidebar-foreground"
+            >
               <ChevronRight className="h-4 w-4" />
-            ) : (
-              <ChevronLeft className="h-4 w-4" />
-            )}
-          </button>
+            </button>
+          )}
         </div>
 
         {/* Navigation */}
