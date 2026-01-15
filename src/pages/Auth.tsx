@@ -5,6 +5,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Wallet, Loader2, Building2, ArrowLeft, CheckCircle2 } from 'lucide-react';
@@ -392,10 +393,9 @@ export default function Auth() {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="login-password">Senha</Label>
-                      <Input
+                      <PasswordInput
                         id="login-password"
                         name="password"
-                        type="password"
                         placeholder="••••••••"
                         required
                       />
@@ -455,10 +455,9 @@ export default function Auth() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="set-password">Nova Senha</Label>
-                  <Input
+                  <PasswordInput
                     id="set-password"
                     name="password"
-                    type="password"
                     placeholder="••••••••"
                     minLength={6}
                     required
@@ -466,10 +465,9 @@ export default function Auth() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="set-confirm-password">Confirmar Senha</Label>
-                  <Input
+                  <PasswordInput
                     id="set-confirm-password"
                     name="confirmPassword"
-                    type="password"
                     placeholder="••••••••"
                     minLength={6}
                     required
@@ -534,10 +532,9 @@ export default function Auth() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="register-password">Senha</Label>
-                <Input
+                <PasswordInput
                   id="register-password"
                   name="password"
-                  type="password"
                   placeholder="••••••••"
                   minLength={6}
                   required
@@ -545,10 +542,9 @@ export default function Auth() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="confirm-password">Confirmar Senha</Label>
-                <Input
+                <PasswordInput
                   id="confirm-password"
                   name="confirmPassword"
-                  type="password"
                   placeholder="••••••••"
                   minLength={6}
                   required
@@ -621,10 +617,9 @@ function SetPasswordForm() {
         <form onSubmit={handleSetPassword} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="password">Nova Senha</Label>
-            <Input
+            <PasswordInput
               id="password"
               name="password"
-              type="password"
               placeholder="••••••••"
               minLength={6}
               required
@@ -632,10 +627,9 @@ function SetPasswordForm() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="confirmPassword">Confirmar Senha</Label>
-            <Input
+            <PasswordInput
               id="confirmPassword"
               name="confirmPassword"
-              type="password"
               placeholder="••••••••"
               minLength={6}
               required
