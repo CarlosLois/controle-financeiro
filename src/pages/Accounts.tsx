@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Building2, Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
 import { useBankAccounts, useCreateBankAccount, useUpdateBankAccount, useDeleteBankAccount, BankAccount } from '@/hooks/useBankAccounts';
 import { cn } from '@/lib/utils';
+import { BankLogo } from '@/components/BankLogo';
+import { availableBanks } from '@/utils/bankLogos';
 
 export default function Accounts() {
   const { data: accounts = [], isLoading } = useBankAccounts();
@@ -110,7 +112,21 @@ export default function Accounts() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="bank">Banco</Label>
-                  <Input id="bank" name="bank" defaultValue={editingAccount?.bank} placeholder="Ex: Nubank" required />
+                  <Select name="bank" defaultValue={editingAccount?.bank || ''}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o banco" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableBanks.map((bank) => (
+                        <SelectItem key={bank.name} value={bank.name}>
+                          <div className="flex items-center gap-2">
+                            <img src={bank.logo} alt={bank.name} className="h-5 w-5 object-contain" />
+                            <span>{bank.name}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="type">Tipo de Conta</Label>
@@ -172,12 +188,7 @@ export default function Accounts() {
             accounts.map((account) => (
               <Card key={account.id} className="glass-card p-6 hover:shadow-xl transition-shadow animate-fade-in">
                 <div className="flex items-start justify-between mb-4">
-                  <div
-                    className="h-12 w-12 rounded-xl flex items-center justify-center"
-                    style={{ backgroundColor: `${account.color}20` }}
-                  >
-                    <Building2 className="h-6 w-6" style={{ color: account.color }} />
-                  </div>
+                  <BankLogo bankName={account.bank} fallbackColor={account.color} size="lg" />
                   <div className="flex gap-1">
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(account)}>
                       <Pencil className="h-4 w-4 text-muted-foreground" />
