@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Wallet, Loader2, Building2, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { Wallet, Loader2, Building2, ArrowLeft, CheckCircle2, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDocument, validateDocument } from '@/utils/documentMask';
 
@@ -382,14 +382,25 @@ export default function Auth() {
 
                     <div className="space-y-2">
                       <Label htmlFor="login-email">Email</Label>
-                      <Input
-                        id="login-email"
-                        name="email"
-                        type="email"
-                        value={loginEmail}
-                        readOnly
-                        className="bg-muted"
-                      />
+                      <div className="flex gap-2">
+                        <Input
+                          id="login-email"
+                          name="email"
+                          type="email"
+                          value={loginEmail}
+                          readOnly
+                          className="bg-muted flex-1"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={() => setShowPasswordField(false)}
+                          title="Alterar email"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="login-password">Senha</Label>
