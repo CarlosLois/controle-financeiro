@@ -36,6 +36,7 @@ export default function Auth() {
   const [loginEmail, setLoginEmail] = useState('');
   const [isNewUser, setIsNewUser] = useState(false);
   const [isCheckingUser, setIsCheckingUser] = useState(false);
+  const [showPasswordField, setShowPasswordField] = useState(false);
 
   useEffect(() => {
     const checkPassword = async () => {
@@ -109,11 +110,13 @@ export default function Auth() {
     setFoundOrg(null);
     setLoginEmail('');
     setIsNewUser(false);
+    setShowPasswordField(false);
   };
 
   const handleBackToCredentials = () => {
     setLoginStep('credentials');
     setIsNewUser(false);
+    setShowPasswordField(false);
   };
 
   const handleCheckUserAndProceed = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -144,6 +147,7 @@ export default function Auth() {
       } else {
         // User exists and has password, show password field
         setIsNewUser(false);
+        setShowPasswordField(true);
       }
     } catch (error: any) {
       toast.error('Erro ao verificar usuário: ' + error.message);
@@ -310,7 +314,7 @@ export default function Auth() {
 
             {loginStep === 'credentials' && (
               <>
-                {!isNewUser ? (
+                {!showPasswordField ? (
                   <form onSubmit={handleCheckUserAndProceed} className="space-y-4">
                     <button
                       type="button"
