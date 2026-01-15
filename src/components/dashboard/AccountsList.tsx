@@ -1,8 +1,9 @@
-import { Building2, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BankAccount } from '@/types/finance';
 import { cn } from '@/lib/utils';
+import { BankLogo } from '@/components/BankLogo';
 
 interface AccountsListProps {
   accounts: BankAccount[];
@@ -45,12 +46,7 @@ export function AccountsList({ accounts, onAddAccount }: AccountsListProps) {
             className="flex items-center gap-4 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors cursor-pointer"
             style={{ animationDelay: `${index * 100}ms` }}
           >
-            <div
-              className="h-10 w-10 rounded-lg flex items-center justify-center"
-              style={{ backgroundColor: `${account.color}20` }}
-            >
-              <Building2 className="h-5 w-5" style={{ color: account.color }} />
-            </div>
+            <BankLogo bankName={account.bank} fallbackColor={account.color} size="md" />
             <div className="flex-1">
               <p className="text-sm font-medium text-foreground">{account.name}</p>
               <p className="text-xs text-muted-foreground">
