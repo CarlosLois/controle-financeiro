@@ -14,6 +14,7 @@ import CreditCards from "./pages/CreditCards";
 import Users from "./pages/Users";
 import Settings from "./pages/Settings";
 import CreateOrganization from "./pages/CreateOrganization";
+import ImportStatement from "./pages/ImportStatement";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
@@ -35,6 +36,7 @@ const App = () => (
               <Route path="/categories" element={<ProtectedRoute><Categories /></ProtectedRoute>} />
               <Route path="/transactions" element={<ProtectedRoute><Transactions /></ProtectedRoute>} />
               <Route path="/cards" element={<ProtectedRoute><CreditCards /></ProtectedRoute>} />
+              <Route path="/import-statement" element={<ProtectedRoute><ImportStatement /></ProtectedRoute>} />
               <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

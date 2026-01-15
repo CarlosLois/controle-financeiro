@@ -61,6 +61,81 @@ export type Database = {
           },
         ]
       }
+      bank_statement_entries: {
+        Row: {
+          account_id: string
+          amount: number
+          check_number: string | null
+          created_at: string
+          date: string
+          description: string
+          id: string
+          matched_transaction_id: string | null
+          memo: string | null
+          organization_id: string
+          reconciled_at: string | null
+          reconciled_by: string | null
+          status: string
+          transaction_id: string | null
+          type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          amount: number
+          check_number?: string | null
+          created_at?: string
+          date: string
+          description: string
+          id?: string
+          matched_transaction_id?: string | null
+          memo?: string | null
+          organization_id: string
+          reconciled_at?: string | null
+          reconciled_by?: string | null
+          status?: string
+          transaction_id?: string | null
+          type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          amount?: number
+          check_number?: string | null
+          created_at?: string
+          date?: string
+          description?: string
+          id?: string
+          matched_transaction_id?: string | null
+          memo?: string | null
+          organization_id?: string
+          reconciled_at?: string | null
+          reconciled_by?: string | null
+          status?: string
+          transaction_id?: string | null
+          type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_statement_entries_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "bank_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_statement_entries_matched_transaction_id_fkey"
+            columns: ["matched_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       credit_cards: {
         Row: {
           closing_day: number

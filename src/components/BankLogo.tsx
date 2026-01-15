@@ -5,17 +5,19 @@ import { cn } from '@/lib/utils';
 interface BankLogoProps {
   bankName: string;
   fallbackColor?: string;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   className?: string;
 }
 
 const sizeClasses = {
+  xs: 'h-5 w-5',
   sm: 'h-8 w-8',
   md: 'h-10 w-10',
   lg: 'h-12 w-12',
 };
 
 const iconSizeClasses = {
+  xs: 'h-3 w-3',
   sm: 'h-4 w-4',
   md: 'h-5 w-5',
   lg: 'h-6 w-6',
