@@ -8,7 +8,9 @@ import {
   LogOut,
   TrendingUp,
   Users,
-  Settings
+  Settings,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -25,7 +27,12 @@ const menuItems = [
   { icon: Settings, label: 'Configurações', path: '/settings' },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  collapsed: boolean;
+  onToggle: () => void;
+}
+
+export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const location = useLocation();
   const { signOut, user } = useAuth();
   const { data: currentMember } = useCurrentMember();
@@ -33,17 +40,37 @@ export function Sidebar() {
   const isAdmin = currentMember?.role === 'admin';
 
   return (
-    <aside className="fixed left-0 top-0 z-40 h-screen w-64 bg-sidebar border-r border-sidebar-border">
+    <aside className={cn(
+      "fixed left-0 top-0 z-40 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300",
+      collapsed ? "w-16" : "w-64"
+    )}>
       <div className="flex h-full flex-col">
         {/* Logo */}
-        <div className="flex items-center gap-3 px-6 py-6 border-b border-sidebar-border">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sidebar-primary">
-            <TrendingUp className="h-5 w-5 text-sidebar-primary-foreground" />
+        <div className="flex items-center justify-between h-16 px-4 border-b border-sidebar-border">
+          <div className={cn("flex items-center gap-3", collapsed && "justify-center w-full")}>
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sidebar-primary shrink-0">
+              <TrendingUp className="h-5 w-5 text-sidebar-primary-foreground" />
+            </div>
+            {!collapsed && (
+              <div>
+                <h1 className="text-lg font-bold text-sidebar-foreground">FinanceApp</h1>
+                <p className="text-xs text-sidebar-foreground/60">Controle Financeiro</p>
+              </div>
+            )}
           </div>
-          <div>
-            <h1 className="text-lg font-bold text-sidebar-foreground">FinanceApp</h1>
-            <p className="text-xs text-sidebar-foreground/60">Controle Financeiro</p>
-          </div>
+          <button
+            onClick={onToggle}
+            className={cn(
+              "p-1.5 rounded-md hover:bg-sidebar-accent transition-colors text-sidebar-foreground/70 hover:text-sidebar-foreground",
+              collapsed && "absolute -right-3 top-6 bg-sidebar border border-sidebar-border shadow-sm"
+            )}
+          >
+            {collapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <ChevronLeft className="h-4 w-4" />
+            )}
+          </button>
         </div>
 
         {/* Navigation */}
@@ -60,11 +87,13 @@ export function Sidebar() {
                     "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
                     isActive
                       ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                    collapsed && "justify-center px-2"
                   )}
+                  title={collapsed ? item.label : undefined}
                 >
-                  <item.icon className="h-5 w-5" />
-                  {item.label}
+                  <item.icon className="h-5 w-5 shrink-0" />
+                  {!collapsed && item.label}
                 </Link>
               );
             })}
@@ -72,14 +101,20 @@ export function Sidebar() {
 
         {/* User & Logout */}
         <div className="border-t border-sidebar-border px-3 py-4 space-y-2">
-          <p className="text-xs text-sidebar-foreground/60 px-3 truncate">{user?.email}</p>
+          {!collapsed && (
+            <p className="text-xs text-sidebar-foreground/60 px-3 truncate">{user?.email}</p>
+          )}
           <Button
             variant="ghost"
             onClick={signOut}
-            className="w-full justify-start gap-3 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            className={cn(
+              "w-full gap-3 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+              collapsed ? "justify-center px-2" : "justify-start"
+            )}
+            title={collapsed ? "Sair" : undefined}
           >
-            <LogOut className="h-5 w-5" />
-            Sair
+            <LogOut className="h-5 w-5 shrink-0" />
+            {!collapsed && "Sair"}
           </Button>
         </div>
       </div>

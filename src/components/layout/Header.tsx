@@ -163,19 +163,6 @@ export function Header({ title, subtitle }: HeaderProps) {
           </TooltipTrigger>
           <TooltipContent>Notificações</TooltipContent>
         </Tooltip>
-
-        {/* User Avatar */}
-        <div className="flex items-center gap-3 ml-2 pl-4 border-l border-border">
-          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-            <span className="text-sm font-semibold text-primary uppercase">
-              {userName.charAt(0)}
-            </span>
-          </div>
-          <div className="hidden sm:block">
-            <p className="text-sm font-medium leading-none">{userName}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Administrador</p>
-          </div>
-        </div>
       </div>
     </header>
   );
