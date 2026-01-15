@@ -13,6 +13,16 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Table,
   TableBody,
   TableCell,
@@ -41,6 +51,7 @@ export default function Users() {
   
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [email, setEmail] = useState('');
+  const [memberToRemove, setMemberToRemove] = useState<{ id: string; email: string } | null>(null);
 
   const isAdmin = currentMember?.role === 'admin';
   const isLoading = orgLoading || membersLoading;
@@ -62,9 +73,10 @@ export default function Users() {
     setIsDialogOpen(false);
   };
 
-  const handleRemove = async (memberId: string) => {
-    if (confirm('Tem certeza que deseja remover este usuário?')) {
-      await removeMember.mutateAsync(memberId);
+  const handleRemove = async () => {
+    if (memberToRemove) {
+      await removeMember.mutateAsync(memberToRemove.id);
+      setMemberToRemove(null);
     }
   };
 
@@ -210,7 +222,10 @@ export default function Users() {
                           variant="ghost"
                           size="icon"
                           className="text-destructive hover:text-destructive"
-                          onClick={() => handleRemove(member.id)}
+                          onClick={() => setMemberToRemove({ 
+                            id: member.id, 
+                            email: member.email || `Usuário ${member.user_id.slice(0, 8)}` 
+                          })}
                           disabled={removeMember.isPending}
                         >
                           <Trash2 className="h-4 w-4" />
@@ -223,6 +238,35 @@ export default function Users() {
             </TableBody>
           </Table>
         </Card>
+
+        {/* Remove Member Confirmation Dialog */}
+        <AlertDialog open={!!memberToRemove} onOpenChange={(open) => !open && setMemberToRemove(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remover usuário</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tem certeza que deseja remover <strong>{memberToRemove?.email}</strong> da organização? 
+                Esta ação não pode ser desfeita.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleRemove}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {removeMember.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Removendo...
+                  </>
+                ) : (
+                  'Remover'
+                )}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </MainLayout>
   );
