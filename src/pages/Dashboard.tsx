@@ -73,7 +73,7 @@ export default function Dashboard() {
 
   if (isLoading) {
     return (
-      <MainLayout>
+      <MainLayout title="Dashboard" subtitle="Visão geral das suas finanças">
         <div className="flex items-center justify-center h-96">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -82,13 +82,8 @@ export default function Dashboard() {
   }
 
   return (
-    <MainLayout>
-      <div className="space-y-8">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Visão geral das suas finanças</p>
-        </div>
+    <MainLayout title="Dashboard" subtitle="Visão geral das suas finanças">
+      <div className="space-y-6">
 
         {/* Balance Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

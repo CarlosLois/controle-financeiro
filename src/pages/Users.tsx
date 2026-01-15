@@ -82,7 +82,7 @@ export default function Users() {
 
   if (isLoading) {
     return (
-      <MainLayout>
+      <MainLayout title="Usuários" subtitle="Gerencie os usuários da organização">
         <div className="flex items-center justify-center h-64">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -91,13 +91,9 @@ export default function Users() {
   }
 
   return (
-    <MainLayout>
+    <MainLayout title="Usuários" subtitle="Gerencie os usuários da organização">
       <div className="space-y-6 animate-fade-in">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">Usuários</h1>
-            <p className="text-muted-foreground mt-1">Gerencie os usuários da organização</p>
-          </div>
+        <div className="flex items-center justify-end">
           {isAdmin && (
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
               <DialogTrigger asChild>
