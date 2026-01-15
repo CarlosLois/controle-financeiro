@@ -10,7 +10,8 @@ import {
   Users,
   Settings,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  FileUp
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -23,6 +24,7 @@ const menuItems = [
   { icon: Tags, label: 'Categorias', path: '/categories' },
   { icon: ArrowLeftRight, label: 'Transações', path: '/transactions' },
   { icon: CreditCard, label: 'Cartões', path: '/cards' },
+  { icon: FileUp, label: 'Importar Extrato', path: '/import-statement' },
   { icon: Users, label: 'Usuários', path: '/users', adminOnly: true },
   { icon: Settings, label: 'Configurações', path: '/settings' },
 ];
