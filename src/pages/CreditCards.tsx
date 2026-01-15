@@ -92,7 +92,7 @@ export default function CreditCards() {
 
   if (isLoading) {
     return (
-      <MainLayout>
+      <MainLayout title="Cartões de Crédito" subtitle="Gerencie seus cartões e faturas">
         <div className="flex items-center justify-center h-96">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -101,14 +101,10 @@ export default function CreditCards() {
   }
 
   return (
-    <MainLayout>
-      <div className="space-y-8">
+    <MainLayout title="Cartões de Crédito" subtitle="Gerencie seus cartões e faturas">
+      <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">Cartões de Crédito</h1>
-            <p className="text-muted-foreground mt-1">Gerencie seus cartões e faturas</p>
-          </div>
+        <div className="flex items-center justify-end">
           <Dialog open={isDialogOpen} onOpenChange={(open) => {
             setIsDialogOpen(open);
             if (!open) setEditingCard(null);

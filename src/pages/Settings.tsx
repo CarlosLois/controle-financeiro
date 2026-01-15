@@ -14,7 +14,7 @@ export default function Settings() {
 
   if (orgLoading || memberLoading) {
     return (
-      <MainLayout>
+      <MainLayout title="Configurações" subtitle="Informações da organização e seu vínculo">
         <div className="flex items-center justify-center min-h-[400px]">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -31,12 +31,8 @@ export default function Settings() {
   };
 
   return (
-    <MainLayout>
+    <MainLayout title="Configurações" subtitle="Informações da organização e seu vínculo">
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Configurações</h1>
-          <p className="text-muted-foreground">Informações da organização e seu vínculo</p>
-        </div>
 
         {/* Organization Info */}
         <Card className="p-6">

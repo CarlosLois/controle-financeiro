@@ -105,7 +105,7 @@ export default function Accounts() {
 
   if (isLoading) {
     return (
-      <MainLayout>
+      <MainLayout title="Contas Bancárias" subtitle="Gerencie suas contas e saldos">
         <div className="flex items-center justify-center h-96">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -114,14 +114,10 @@ export default function Accounts() {
   }
 
   return (
-    <MainLayout>
-      <div className="space-y-8">
+    <MainLayout title="Contas Bancárias" subtitle="Gerencie suas contas e saldos">
+      <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">Contas Bancárias</h1>
-            <p className="text-muted-foreground mt-1">Gerencie suas contas e saldos</p>
-          </div>
+        <div className="flex items-center justify-end">
           <Dialog open={isDialogOpen} onOpenChange={(open) => {
             setIsDialogOpen(open);
             if (!open) setEditingAccount(null);
