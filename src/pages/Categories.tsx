@@ -9,6 +9,7 @@ import { Progress } from '@/components/ui/progress';
 import { Plus, Pencil, Trash2, Home, Utensils, Car, Gamepad2, Heart, GraduationCap, Loader2, Folder } from 'lucide-react';
 import { useCategories, useCreateCategory, useUpdateCategory, useDeleteCategory, ExpenseCategory } from '@/hooks/useCategories';
 import { useTransactions } from '@/hooks/useTransactions';
+import { ConfirmationDialog, ConfirmationType } from '@/components/ConfirmationDialog';
 
 const iconMap: Record<string, React.ElementType> = {
   Home,
@@ -29,6 +30,14 @@ export default function Categories() {
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<ExpenseCategory | null>(null);
+  
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    type: ConfirmationType;
+    itemName: string;
+    onConfirm: () => void;
+  }>({ open: false, type: 'create', itemName: '', onConfirm: () => {} });
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -47,6 +56,17 @@ export default function Categories() {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     
+    const name = formData.get('name') as string;
+    
+    setConfirmDialog({
+      open: true,
+      type: editingCategory ? 'update' : 'create',
+      itemName: name,
+      onConfirm: () => confirmSaveCategory(formData),
+    });
+  };
+
+  const confirmSaveCategory = async (formData: FormData) => {
     const categoryData = {
       name: formData.get('name') as string,
       icon: formData.get('icon') as string || 'Folder',
@@ -65,8 +85,15 @@ export default function Categories() {
     setEditingCategory(null);
   };
 
-  const handleDeleteCategory = async (id: string) => {
-    await deleteCategory.mutateAsync(id);
+  const handleDeleteCategory = (category: ExpenseCategory) => {
+    setConfirmDialog({
+      open: true,
+      type: 'delete',
+      itemName: category.name,
+      onConfirm: async () => {
+        await deleteCategory.mutateAsync(category.id);
+      },
+    });
   };
 
   const openEditDialog = (category: ExpenseCategory) => {
@@ -175,7 +202,7 @@ export default function Categories() {
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(category)}>
                         <Pencil className="h-4 w-4 text-muted-foreground" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDeleteCategory(category.id)}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDeleteCategory(category)}>
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
@@ -213,6 +240,15 @@ export default function Categories() {
           )}
         </div>
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
+        onConfirm={confirmDialog.onConfirm}
+        type={confirmDialog.type}
+        itemName={confirmDialog.itemName}
+      />
     </MainLayout>
   );
 }

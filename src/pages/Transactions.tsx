@@ -15,6 +15,7 @@ import { useBankAccounts } from '@/hooks/useBankAccounts';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import { ConfirmationDialog, ConfirmationType } from '@/components/ConfirmationDialog';
 
 export default function Transactions() {
   const { data: transactions = [], isLoading } = useTransactions();
@@ -26,6 +27,14 @@ export default function Transactions() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    type: ConfirmationType;
+    itemName: string;
+    onConfirm: () => void;
+  }>({ open: false, type: 'create', itemName: '', onConfirm: () => {} });
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -46,6 +55,17 @@ export default function Transactions() {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     
+    const description = formData.get('description') as string;
+    
+    setConfirmDialog({
+      open: true,
+      type: 'create',
+      itemName: description,
+      onConfirm: () => confirmSaveTransaction(formData),
+    });
+  };
+
+  const confirmSaveTransaction = async (formData: FormData) => {
     const transactionData = {
       description: formData.get('description') as string,
       amount: parseFloat(formData.get('amount') as string),
@@ -318,6 +338,15 @@ export default function Transactions() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
+        onConfirm={confirmDialog.onConfirm}
+        type={confirmDialog.type}
+        itemName={confirmDialog.itemName}
+      />
     </MainLayout>
   );
 }
