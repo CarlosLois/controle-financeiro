@@ -11,6 +11,7 @@ import { useBankAccounts, useCreateBankAccount, useUpdateBankAccount, useDeleteB
 import { cn } from '@/lib/utils';
 import { BankLogo } from '@/components/BankLogo';
 import { availableBanks } from '@/utils/bankLogos';
+import { ConfirmationDialog, ConfirmationType } from '@/components/ConfirmationDialog';
 
 export default function Accounts() {
   const { data: accounts = [], isLoading } = useBankAccounts();
@@ -20,6 +21,16 @@ export default function Accounts() {
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<BankAccount | null>(null);
+  
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    type: ConfirmationType;
+    itemName: string;
+    onConfirm: () => void;
+  }>({ open: false, type: 'create', itemName: '', onConfirm: () => {} });
+
+  const [pendingFormData, setPendingFormData] = useState<FormData | null>(null);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -44,7 +55,19 @@ export default function Accounts() {
   const handleSaveAccount = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    setPendingFormData(formData);
     
+    const name = formData.get('name') as string;
+    
+    setConfirmDialog({
+      open: true,
+      type: editingAccount ? 'update' : 'create',
+      itemName: name,
+      onConfirm: () => confirmSaveAccount(formData),
+    });
+  };
+
+  const confirmSaveAccount = async (formData: FormData) => {
     const accountData = {
       name: formData.get('name') as string,
       bank: formData.get('bank') as string,
@@ -61,10 +84,18 @@ export default function Accounts() {
 
     setIsDialogOpen(false);
     setEditingAccount(null);
+    setPendingFormData(null);
   };
 
-  const handleDeleteAccount = async (id: string) => {
-    await deleteAccount.mutateAsync(id);
+  const handleDeleteAccount = (account: BankAccount) => {
+    setConfirmDialog({
+      open: true,
+      type: 'delete',
+      itemName: account.name,
+      onConfirm: async () => {
+        await deleteAccount.mutateAsync(account.id);
+      },
+    });
   };
 
   const openEditDialog = (account: BankAccount) => {
@@ -193,7 +224,7 @@ export default function Accounts() {
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(account)}>
                       <Pencil className="h-4 w-4 text-muted-foreground" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDeleteAccount(account.id)}>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDeleteAccount(account)}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
@@ -218,6 +249,15 @@ export default function Accounts() {
           )}
         </div>
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
+        onConfirm={confirmDialog.onConfirm}
+        type={confirmDialog.type}
+        itemName={confirmDialog.itemName}
+      />
     </MainLayout>
   );
 }

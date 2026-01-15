@@ -9,6 +9,7 @@ import { Progress } from '@/components/ui/progress';
 import { CreditCard as CreditCardIcon, Plus, Pencil, Trash2, Calendar, AlertCircle, Loader2 } from 'lucide-react';
 import { useCreditCards, useCreateCreditCard, useUpdateCreditCard, useDeleteCreditCard, CreditCard } from '@/hooks/useCreditCards';
 import { cn } from '@/lib/utils';
+import { ConfirmationDialog, ConfirmationType } from '@/components/ConfirmationDialog';
 
 export default function CreditCards() {
   const { data: cards = [], isLoading } = useCreditCards();
@@ -18,6 +19,14 @@ export default function CreditCards() {
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<CreditCard | null>(null);
+  
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    type: ConfirmationType;
+    itemName: string;
+    onConfirm: () => void;
+  }>({ open: false, type: 'create', itemName: '', onConfirm: () => {} });
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -34,6 +43,17 @@ export default function CreditCards() {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     
+    const name = formData.get('name') as string;
+    
+    setConfirmDialog({
+      open: true,
+      type: editingCard ? 'update' : 'create',
+      itemName: name,
+      onConfirm: () => confirmSaveCard(formData),
+    });
+  };
+
+  const confirmSaveCard = async (formData: FormData) => {
     const cardData = {
       name: formData.get('name') as string,
       last_digits: formData.get('lastDigits') as string,
@@ -54,8 +74,15 @@ export default function CreditCards() {
     setEditingCard(null);
   };
 
-  const handleDeleteCard = async (id: string) => {
-    await deleteCard.mutateAsync(id);
+  const handleDeleteCard = (card: CreditCard) => {
+    setConfirmDialog({
+      open: true,
+      type: 'delete',
+      itemName: card.name,
+      onConfirm: async () => {
+        await deleteCard.mutateAsync(card.id);
+      },
+    });
   };
 
   const openEditDialog = (card: CreditCard) => {
@@ -190,7 +217,7 @@ export default function CreditCards() {
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-white/80 hover:text-white hover:bg-white/20" onClick={() => openEditDialog(card)}>
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-white/80 hover:text-white hover:bg-white/20" onClick={() => handleDeleteCard(card.id)}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-white/80 hover:text-white hover:bg-white/20" onClick={() => handleDeleteCard(card)}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
@@ -251,6 +278,15 @@ export default function CreditCards() {
           )}
         </div>
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
+        onConfirm={confirmDialog.onConfirm}
+        type={confirmDialog.type}
+        itemName={confirmDialog.itemName}
+      />
     </MainLayout>
   );
 }
