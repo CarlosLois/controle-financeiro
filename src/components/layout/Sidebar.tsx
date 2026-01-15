@@ -18,6 +18,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useCurrentMember } from '@/hooks/useOrganization';
 import { Button } from '@/components/ui/button';
 
+import { GitCompare } from 'lucide-react';
+
 const menuItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
   { icon: Wallet, label: 'Contas', path: '/accounts' },
@@ -25,6 +27,7 @@ const menuItems = [
   { icon: ArrowLeftRight, label: 'Transações', path: '/transactions' },
   { icon: CreditCard, label: 'Cartões', path: '/cards' },
   { icon: FileUp, label: 'Importar Extrato', path: '/import-statement' },
+  { icon: GitCompare, label: 'Conciliação', path: '/reconciliation' },
   { icon: Users, label: 'Usuários', path: '/users', adminOnly: true },
   { icon: Settings, label: 'Configurações', path: '/settings' },
 ];
