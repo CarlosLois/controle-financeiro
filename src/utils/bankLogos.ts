@@ -74,3 +74,20 @@ export const availableBanks = [
   { name: 'Caixa', logo: caixaLogo },
   { name: 'C6 Bank', logo: c6BankLogo },
 ];
+
+// Map bank codes (COMPE) to bank names
+const bankCodeToName: { [code: string]: string } = {
+  '001': 'Banco do Brasil',
+  '033': 'Santander',
+  '104': 'Caixa',
+  '237': 'Bradesco',
+  '341': 'Itaú',
+  '077': 'Inter',
+  '260': 'Nubank',
+  '336': 'C6 Bank',
+};
+
+export function getBankNameFromCode(code: string): string | null {
+  const normalizedCode = code.replace(/^0+/, '').padStart(3, '0');
+  return bankCodeToName[normalizedCode] || null;
+}
