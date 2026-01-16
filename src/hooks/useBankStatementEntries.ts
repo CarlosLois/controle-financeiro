@@ -99,8 +99,33 @@ export function useImportBankStatement() {
       if (orgError) throw orgError;
       if (!orgData) throw new Error("Organização não encontrada");
 
+      // Fetch existing entries for this account to check for duplicates
+      const { data: existingEntries, error: fetchError } = await supabase
+        .from('bank_statement_entries')
+        .select('transaction_id, date, amount, type, description')
+        .eq('account_id', accountId);
+
+      if (fetchError) throw fetchError;
+
+      // Create a set of unique keys from existing entries for fast lookup
+      const existingKeys = new Set(
+        (existingEntries || []).map(entry => 
+          `${entry.transaction_id || ''}_${entry.date}_${entry.amount}_${entry.type}_${entry.description}`
+        )
+      );
+
+      // Filter out duplicates by comparing all relevant fields
+      const newTransactions = transactions.filter(tx => {
+        const key = `${tx.fitId || ''}_${tx.datePosted}_${tx.amount}_${tx.type}_${tx.memo}`;
+        return !existingKeys.has(key);
+      });
+
+      if (newTransactions.length === 0) {
+        return { inserted: 0, skipped: transactions.length };
+      }
+
       // Prepare entries for insertion
-      const entries = transactions.map((tx) => ({
+      const entries = newTransactions.map((tx) => ({
         organization_id: orgData,
         account_id: accountId,
         user_id: user.id,
@@ -114,23 +139,25 @@ export function useImportBankStatement() {
         status: 'pending' as const,
       }));
 
-      // Insert with upsert to handle duplicates
       const { data, error } = await supabase
         .from('bank_statement_entries')
-        .upsert(entries, { 
-          onConflict: 'account_id,transaction_id',
-          ignoreDuplicates: true 
-        })
+        .insert(entries)
         .select();
 
       if (error) throw error;
-      return data;
+      return { 
+        inserted: data?.length || 0, 
+        skipped: transactions.length - newTransactions.length 
+      };
     },
-    onSuccess: (data) => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['bank_statement_entries'] });
+      const skippedMsg = result.skipped > 0 
+        ? ` (${result.skipped} duplicadas ignoradas)` 
+        : '';
       toast({
         title: "Extrato importado",
-        description: `${data?.length || 0} transações importadas com sucesso`,
+        description: `${result.inserted} transações importadas${skippedMsg}`,
       });
     },
     onError: (error: Error) => {
