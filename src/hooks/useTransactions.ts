@@ -19,7 +19,16 @@ export interface Transaction {
   updated_at: string;
 }
 
-export type TransactionInsert = Omit<Transaction, 'id' | 'user_id' | 'organization_id' | 'created_at' | 'updated_at'>;
+export type TransactionInsert = {
+  description: string;
+  amount: number;
+  type: 'income' | 'expense' | 'transfer';
+  account_id: string;
+  date: string;
+  status: 'pending' | 'completed';
+  category_id?: string | null;
+  is_recurring?: boolean | null;
+};
 export type TransactionUpdate = Partial<TransactionInsert>;
 
 async function getOrganizationId(userId: string): Promise<string | null> {

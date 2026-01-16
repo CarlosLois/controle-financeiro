@@ -1,5 +1,5 @@
-import { useState, useMemo, useRef, useEffect } from "react";
-import { format, parseISO } from "date-fns";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { format, parseISO, differenceInDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
   AlertCircle,
@@ -14,6 +14,8 @@ import {
   X,
   Link2,
   Unlink,
+  Play,
+  Plus,
 } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -35,7 +37,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { useBankAccounts } from "@/hooks/useBankAccounts";
 import { useAccountFilter } from "@/contexts/AccountFilterContext";
-import { useTransactions } from "@/hooks/useTransactions";
+import { useTransactions, useCreateTransaction } from "@/hooks/useTransactions";
 import { 
   usePendingStatementEntries, 
   useUpdateStatementEntryStatus,
@@ -43,12 +45,22 @@ import {
 } from "@/hooks/useBankStatementEntries";
 import { BankLogo } from "@/components/BankLogo";
 
+// Types for action matching
+type ActionType = 'CL' | 'IL' | null;
+
+interface StatementEntryWithAction extends BankStatementEntry {
+  _action: ActionType;
+  _matchedTransactionId: string | null;
+  _matchScore: number;
+}
+
 const Reconciliation = () => {
   const { data: bankAccounts = [] } = useBankAccounts();
   const { selectedAccountId } = useAccountFilter();
   const { data: transactions = [], isLoading: isLoadingTransactions } = useTransactions();
   const { data: statementEntries = [], isLoading: isLoadingStatement } = usePendingStatementEntries(selectedAccountId || undefined);
   const updateStatusMutation = useUpdateStatementEntryStatus();
+  const createTransactionMutation = useCreateTransaction();
 
   // State for selected items
   const [selectedTransactions, setSelectedTransactions] = useState<string[]>([]);
@@ -61,9 +73,13 @@ const Reconciliation = () => {
   const [searchTransacoes, setSearchTransacoes] = useState('');
   const [positionedStatementId, setPositionedStatementId] = useState<string | null>(null);
 
+  // Processed entries with actions
+  const [processedEntries, setProcessedEntries] = useState<Map<string, { action: ActionType; matchedTransactionId: string | null; matchScore: number }>>(new Map());
+
   // Dialogs
   const [showConciliarDialog, setShowConciliarDialog] = useState(false);
   const [showDesconciliarDialog, setShowDesconciliarDialog] = useState(false);
+  const [showLancarDialog, setShowLancarDialog] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Refs for auto-scroll
@@ -75,7 +91,101 @@ const Reconciliation = () => {
     return bankAccounts.find((acc) => acc.id === selectedAccountId) || null;
   }, [selectedAccountId, bankAccounts]);
 
-  // Filter statement entries
+  // Process reconciliation - find matches
+  const processReconciliation = useCallback(() => {
+    if (!selectedAccountId) return;
+
+    const pendingStatements = statementEntries.filter(e => e.status === 'pending' && e.account_id === selectedAccountId);
+    const pendingTransactions = transactions.filter(t => t.status === 'pending' && t.account_id === selectedAccountId);
+
+    const newProcessedEntries = new Map<string, { action: ActionType; matchedTransactionId: string | null; matchScore: number }>();
+    const usedTransactionIds = new Set<string>();
+
+    for (const entry of pendingStatements) {
+      const entryType = entry.type; // 'C' or 'D'
+      const entryAmount = entry.amount;
+      const entryDate = new Date(entry.date);
+      const entryDescription = entry.description.toLowerCase();
+
+      let bestMatch: { transactionId: string; score: number } | null = null;
+
+      for (const tx of pendingTransactions) {
+        if (usedTransactionIds.has(tx.id)) continue;
+
+        const txType = tx.type === 'income' ? 'C' : 'D';
+        
+        // Type must match
+        if (txType !== entryType) continue;
+
+        let score = 0;
+
+        // Amount matching (exact = 50 points, close = 25 points)
+        const amountDiff = Math.abs(tx.amount - entryAmount);
+        if (amountDiff < 0.01) {
+          score += 50;
+        } else if (amountDiff / entryAmount < 0.05) {
+          score += 25;
+        }
+
+        // Date matching (same day = 30 points, within 3 days = 15 points, within 7 days = 5 points)
+        const txDate = new Date(tx.date);
+        const daysDiff = Math.abs(differenceInDays(entryDate, txDate));
+        if (daysDiff === 0) {
+          score += 30;
+        } else if (daysDiff <= 3) {
+          score += 15;
+        } else if (daysDiff <= 7) {
+          score += 5;
+        }
+
+        // Description matching (contains = 20 points)
+        const txDescription = tx.description.toLowerCase();
+        if (entryDescription.includes(txDescription) || txDescription.includes(entryDescription)) {
+          score += 20;
+        } else {
+          // Partial word match
+          const entryWords = entryDescription.split(/\s+/);
+          const txWords = txDescription.split(/\s+/);
+          const matchingWords = entryWords.filter(w => txWords.some(tw => tw.includes(w) || w.includes(tw)));
+          if (matchingWords.length > 0) {
+            score += Math.min(matchingWords.length * 5, 15);
+          }
+        }
+
+        // Only consider if score is above threshold and better than current best
+        if (score >= 50 && (!bestMatch || score > bestMatch.score)) {
+          bestMatch = { transactionId: tx.id, score };
+        }
+      }
+
+      if (bestMatch) {
+        newProcessedEntries.set(entry.id, {
+          action: 'CL',
+          matchedTransactionId: bestMatch.transactionId,
+          matchScore: bestMatch.score,
+        });
+        usedTransactionIds.add(bestMatch.transactionId);
+      } else {
+        newProcessedEntries.set(entry.id, {
+          action: 'IL',
+          matchedTransactionId: null,
+          matchScore: 0,
+        });
+      }
+    }
+
+    setProcessedEntries(newProcessedEntries);
+
+    const clCount = Array.from(newProcessedEntries.values()).filter(v => v.action === 'CL').length;
+    const ilCount = Array.from(newProcessedEntries.values()).filter(v => v.action === 'IL').length;
+
+    toast({
+      title: "Processamento concluído",
+      description: `${clCount} conciliações sugeridas, ${ilCount} lançamentos a incluir`,
+    });
+  }, [statementEntries, transactions, selectedAccountId]);
+
+  // Filter statement entries with actions
   const filteredStatementEntries = useMemo(() => {
     let filtered = statementEntries;
 
@@ -109,11 +219,22 @@ const Reconciliation = () => {
       );
     }
 
+    // Add action info
+    const entriesWithAction: StatementEntryWithAction[] = filtered.map(e => {
+      const processed = processedEntries.get(e.id);
+      return {
+        ...e,
+        _action: processed?.action || null,
+        _matchedTransactionId: processed?.matchedTransactionId || null,
+        _matchScore: processed?.matchScore || 0,
+      };
+    });
+
     // Sort by date descending
-    return [...filtered].sort(
+    return entriesWithAction.sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
-  }, [statementEntries, selectedAccountId, filtroLocalizacao, filtroTipo, searchExtrato]);
+  }, [statementEntries, selectedAccountId, filtroLocalizacao, filtroTipo, searchExtrato, processedEntries]);
 
   // Get positioned statement item
   const positionedStatementItem = useMemo(() => {
@@ -121,7 +242,7 @@ const Reconciliation = () => {
     return filteredStatementEntries.find((e) => e.id === positionedStatementId) || null;
   }, [positionedStatementId, filteredStatementEntries]);
 
-  // Filter transactions (predicted) based on positioned statement item
+  // Filter transactions based on positioned statement item
   const filteredTransactions = useMemo(() => {
     let filtered = transactions;
 
@@ -142,28 +263,42 @@ const Reconciliation = () => {
       );
     }
 
-    // If we have a positioned statement, prioritize transactions with matching amount/type
+    // If we have a positioned statement with action CL, show only matched transaction
     if (positionedStatementItem) {
-      const statementAmount = positionedStatementItem.amount;
-      const statementType = positionedStatementItem.type;
+      if (positionedStatementItem._action === 'CL' && positionedStatementItem._matchedTransactionId) {
+        // Show only the matched transaction
+        const matchedTx = filtered.find(t => t.id === positionedStatementItem._matchedTransactionId);
+        if (matchedTx) {
+          return [{ ...matchedTx, _matchScore: positionedStatementItem._matchScore }];
+        }
+        return [];
+      } else {
+        // No match (IL) - filter by type only
+        const statementType = positionedStatementItem.type;
+        filtered = filtered.filter((t) => {
+          const transactionType = t.type === 'income' ? 'C' : 'D';
+          return transactionType === statementType;
+        });
 
-      filtered = filtered.map((t) => {
-        const transactionType = t.type === 'income' ? 'C' : 'D';
-        const amountMatch = Math.abs(t.amount - statementAmount) < 0.01;
-        const typeMatch = transactionType === statementType;
-        return {
-          ...t,
-          _matchScore: (amountMatch ? 50 : 0) + (typeMatch ? 30 : 0),
-        };
-      });
+        // Calculate match scores for display
+        const statementAmount = positionedStatementItem.amount;
 
-      // Sort by match score descending, then by date
-      return [...filtered].sort((a, b) => {
-        const scoreA = (a as any)._matchScore || 0;
-        const scoreB = (b as any)._matchScore || 0;
-        if (scoreB !== scoreA) return scoreB - scoreA;
-        return new Date(a.date).getTime() - new Date(b.date).getTime();
-      });
+        filtered = filtered.map((t) => {
+          const amountMatch = Math.abs(t.amount - statementAmount) < 0.01;
+          return {
+            ...t,
+            _matchScore: amountMatch ? 50 : 0,
+          };
+        });
+
+        // Sort by match score descending, then by date
+        return [...filtered].sort((a, b) => {
+          const scoreA = (a as any)._matchScore || 0;
+          const scoreB = (b as any)._matchScore || 0;
+          if (scoreB !== scoreA) return scoreB - scoreA;
+          return new Date(a.date).getTime() - new Date(b.date).getTime();
+        });
+      }
     }
 
     // Sort by date ascending
@@ -209,7 +344,8 @@ const Reconciliation = () => {
   }, [selectedStatementItems]);
 
   // Button enable rules
-  const canConciliar = selectedStatement.length > 0 && allSelectedStatementPending;
+  const canConciliar = selectedStatement.length > 0 && selectedTransactions.length > 0 && allSelectedStatementPending;
+  const canLancar = selectedStatement.length > 0 && selectedTransactions.length === 0 && allSelectedStatementPending;
   const canDesconciliar = selectedStatement.length > 0 && allSelectedStatementReconciled;
 
   // Auto-position on first statement item when filter changes
@@ -224,10 +360,11 @@ const Reconciliation = () => {
     setSelectedTransactions([]);
     setSelectedStatement([]);
     setPositionedStatementId(null);
+    setProcessedEntries(new Map());
   }, [selectedAccountId]);
 
   // Toggle selection
-  const toggleStatement = (entry: BankStatementEntry) => {
+  const toggleStatement = (entry: StatementEntryWithAction) => {
     setSelectedStatement((prev) =>
       prev.includes(entry.id)
         ? prev.filter((id) => id !== entry.id)
@@ -253,7 +390,7 @@ const Reconciliation = () => {
     setIsProcessing(true);
 
     try {
-      // Get first selected transaction ID (if any) for matching
+      // Get first selected transaction ID for matching
       const matchedTransactionId = selectedTransactionItems[0]?.id || undefined;
 
       // Update all selected statement entries to reconciled
@@ -270,9 +407,14 @@ const Reconciliation = () => {
         description: `${selectedStatementItems.length} registro(s) conciliado(s) com sucesso`,
       });
 
-      // Clear selections
+      // Clear selections and processed entries for these items
       setSelectedStatement([]);
       setSelectedTransactions([]);
+      setProcessedEntries(prev => {
+        const next = new Map(prev);
+        selectedStatementItems.forEach(e => next.delete(e.id));
+        return next;
+      });
     } catch (error) {
       toast({
         title: "Erro na conciliação",
@@ -282,6 +424,57 @@ const Reconciliation = () => {
     } finally {
       setIsProcessing(false);
       setShowConciliarDialog(false);
+    }
+  };
+
+  // Handle create transaction (Lançar)
+  const handleLancar = () => {
+    if (!canLancar) return;
+    setShowLancarDialog(true);
+  };
+
+  const executeLancar = async () => {
+    setIsProcessing(true);
+
+    try {
+      for (const entry of selectedStatementItems) {
+        // Create transaction from statement entry
+        await createTransactionMutation.mutateAsync({
+          account_id: entry.account_id,
+          amount: entry.amount,
+          description: entry.description,
+          date: entry.date,
+          type: entry.type === 'C' ? 'income' : 'expense',
+          status: 'completed',
+        });
+
+        // Update statement entry to reconciled
+        await updateStatusMutation.mutateAsync({
+          entryId: entry.id,
+          status: 'reconciled',
+        });
+      }
+
+      toast({
+        title: "Lançamentos criados",
+        description: `${selectedStatementItems.length} transação(ões) criada(s) e conciliada(s)`,
+      });
+
+      setSelectedStatement([]);
+      setProcessedEntries(prev => {
+        const next = new Map(prev);
+        selectedStatementItems.forEach(e => next.delete(e.id));
+        return next;
+      });
+    } catch (error) {
+      toast({
+        title: "Erro ao lançar",
+        description: "Não foi possível criar os lançamentos",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+      setShowLancarDialog(false);
     }
   };
 
@@ -327,6 +520,24 @@ const Reconciliation = () => {
     } catch {
       return dateStr;
     }
+  };
+
+  const getActionBadge = (action: ActionType) => {
+    if (action === 'CL') {
+      return (
+        <Badge className="text-[9px] px-1 py-0 bg-blue-500 hover:bg-blue-600">
+          CL
+        </Badge>
+      );
+    }
+    if (action === 'IL') {
+      return (
+        <Badge className="text-[9px] px-1 py-0 bg-orange-500 hover:bg-orange-600">
+          IL
+        </Badge>
+      );
+    }
+    return null;
   };
 
   const isLoading = isLoadingTransactions || isLoadingStatement;
@@ -380,6 +591,44 @@ const Reconciliation = () => {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Lançar Dialog */}
+      <AlertDialog open={showLancarDialog} onOpenChange={setShowLancarDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Criar Lançamentos</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p>Deseja criar lançamentos para os {selectedStatementItems.length} registro(s) selecionado(s)?</p>
+                <div className="mt-3 p-3 bg-muted rounded-md space-y-1">
+                  <p className="text-sm">
+                    <span className="text-muted-foreground">Total:</span>{" "}
+                    <span className="font-semibold">
+                      {statementTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    </span>
+                  </p>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Serão criadas transações no sistema e os registros do extrato serão marcados como conciliados.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={executeLancar} disabled={isProcessing}>
+              {isProcessing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Processando...
+                </>
+              ) : (
+                'Criar Lançamentos'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Desconciliar Dialog */}
       <AlertDialog open={showDesconciliarDialog} onOpenChange={setShowDesconciliarDialog}>
         <AlertDialogContent>
@@ -421,7 +670,7 @@ const Reconciliation = () => {
 
         {selectedAccountId && (
           <>
-            {/* Filters and Actions */}
+            {/* Header Actions */}
             <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
               <div className="flex items-center gap-2">
                 <Button
@@ -472,6 +721,15 @@ const Reconciliation = () => {
                 )}
                 <div className="flex items-center gap-2">
                   <Button
+                    onClick={processReconciliation}
+                    size="sm"
+                    variant="secondary"
+                    className="gap-1"
+                  >
+                    <Play className="h-3 w-3" />
+                    Processar
+                  </Button>
+                  <Button
                     onClick={handleConciliar}
                     disabled={!canConciliar}
                     size="sm"
@@ -479,6 +737,16 @@ const Reconciliation = () => {
                   >
                     <Link2 className="h-3 w-3" />
                     Conciliar
+                  </Button>
+                  <Button
+                    onClick={handleLancar}
+                    disabled={!canLancar}
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
+                  >
+                    <Plus className="h-3 w-3" />
+                    Lançar
                   </Button>
                   <Button
                     onClick={handleDesconciliar}
@@ -646,6 +914,7 @@ const Reconciliation = () => {
                             >
                               {entry.status === 'pending' ? 'Pendente' : 'Conciliado'}
                             </Badge>
+                            {getActionBadge(entry._action)}
                           </div>
                         </div>
                         <span
@@ -689,6 +958,12 @@ const Reconciliation = () => {
                       <h3 className="font-semibold">Transações Previstas</h3>
                       <p className="text-sm text-muted-foreground">
                         {filteredTransactions.length} lançamentos do sistema
+                        {positionedStatementItem?._action === 'CL' && (
+                          <span className="ml-1 text-blue-600">(associada)</span>
+                        )}
+                        {positionedStatementItem?._action === 'IL' && (
+                          <span className="ml-1 text-orange-600">(filtrado por tipo)</span>
+                        )}
                       </p>
                     </div>
                     {isLoading && (
@@ -747,7 +1022,9 @@ const Reconciliation = () => {
                     </div>
                   ) : filteredTransactions.length === 0 ? (
                     <div className="p-8 text-center text-muted-foreground">
-                      Nenhum lançamento pendente no sistema
+                      {positionedStatementItem?._action === 'IL' 
+                        ? "Nenhum lançamento previsto compatível" 
+                        : "Nenhum lançamento pendente no sistema"}
                     </div>
                   ) : (
                     filteredTransactions.map((t) => {
