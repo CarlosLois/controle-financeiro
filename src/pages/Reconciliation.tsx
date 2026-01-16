@@ -12,10 +12,8 @@ import {
   Search,
   SearchX,
   X,
-  Link2,
-  Unlink,
-  Play,
-  Plus,
+  RefreshCw,
+  Trash2,
 } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -41,9 +39,9 @@ import { useTransactions, useCreateTransaction } from "@/hooks/useTransactions";
 import { 
   usePendingStatementEntries, 
   useUpdateStatementEntryStatus,
+  useDeleteStatementEntry,
   type BankStatementEntry 
 } from "@/hooks/useBankStatementEntries";
-import { BankLogo } from "@/components/BankLogo";
 
 // Types for action matching
 type ActionType = 'CL' | 'IL' | null;
@@ -55,22 +53,25 @@ interface StatementEntryWithAction extends BankStatementEntry {
 }
 
 const Reconciliation = () => {
-  const { data: bankAccounts = [] } = useBankAccounts();
+  const { data: bankAccounts = [], refetch: refetchAccounts } = useBankAccounts();
   const { selectedAccountId } = useAccountFilter();
-  const { data: transactions = [], isLoading: isLoadingTransactions } = useTransactions();
-  const { data: statementEntries = [], isLoading: isLoadingStatement } = usePendingStatementEntries(selectedAccountId || undefined);
+  const { data: transactions = [], isLoading: isLoadingTransactions, refetch: refetchTransactions } = useTransactions();
+  const { data: statementEntries = [], isLoading: isLoadingStatement, refetch: refetchStatement } = usePendingStatementEntries(selectedAccountId || undefined);
   const updateStatusMutation = useUpdateStatementEntryStatus();
   const createTransactionMutation = useCreateTransaction();
+  const deleteStatementMutation = useDeleteStatementEntry();
 
   // State for selected items
   const [selectedTransactions, setSelectedTransactions] = useState<string[]>([]);
   const [selectedStatement, setSelectedStatement] = useState<string[]>([]);
   
   // Filter states
-  const [filtroLocalizacao, setFiltroLocalizacao] = useState<'todos' | 'pendente' | 'conciliado'>('pendente');
+  const [filtroLocalizacao, setFiltroLocalizacao] = useState<'todos' | 'localizado' | 'nao_localizado'>('todos');
   const [filtroTipo, setFiltroTipo] = useState<'todos' | 'C' | 'D'>('todos');
+  const [filtroOrigem, setFiltroOrigem] = useState<'todos' | 'TE' | 'CR' | 'CP' | 'PV'>('todos');
   const [searchExtrato, setSearchExtrato] = useState('');
   const [searchTransacoes, setSearchTransacoes] = useState('');
+  const [mostrarTodasTransacoes, setMostrarTodasTransacoes] = useState(false);
   const [positionedStatementId, setPositionedStatementId] = useState<string | null>(null);
 
   // Processed entries with actions
@@ -80,7 +81,9 @@ const Reconciliation = () => {
   const [showConciliarDialog, setShowConciliarDialog] = useState(false);
   const [showDesconciliarDialog, setShowDesconciliarDialog] = useState(false);
   const [showLancarDialog, setShowLancarDialog] = useState(false);
+  const [showRemoverDialog, setShowRemoverDialog] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Refs for auto-scroll
   const statementItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -90,6 +93,30 @@ const Reconciliation = () => {
     if (!selectedAccountId) return null;
     return bankAccounts.find((acc) => acc.id === selectedAccountId) || null;
   }, [selectedAccountId, bankAccounts]);
+
+  // Refresh all data
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        refetchAccounts(),
+        refetchTransactions(),
+        refetchStatement(),
+      ]);
+      toast({
+        title: "Dados atualizados",
+        description: "A conciliação foi atualizada com sucesso",
+      });
+    } catch (error) {
+      toast({
+        title: "Erro ao atualizar",
+        description: "Não foi possível atualizar os dados",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   // Process reconciliation - find matches
   const processReconciliation = useCallback(() => {
@@ -194,11 +221,17 @@ const Reconciliation = () => {
       filtered = filtered.filter((e) => e.account_id === selectedAccountId);
     }
 
-    // Filter by status
-    if (filtroLocalizacao === 'pendente') {
-      filtered = filtered.filter((e) => e.status === 'pending');
-    } else if (filtroLocalizacao === 'conciliado') {
-      filtered = filtered.filter((e) => e.status === 'reconciled');
+    // Filter by localization status
+    if (filtroLocalizacao === 'localizado') {
+      filtered = filtered.filter((e) => {
+        const processed = processedEntries.get(e.id);
+        return processed?.action === 'CL';
+      });
+    } else if (filtroLocalizacao === 'nao_localizado') {
+      filtered = filtered.filter((e) => {
+        const processed = processedEntries.get(e.id);
+        return !processed?.action || processed?.action === 'IL';
+      });
     }
 
     // Filter by type
@@ -251,8 +284,16 @@ const Reconciliation = () => {
       filtered = filtered.filter((t) => t.account_id === selectedAccountId);
     }
 
-    // Filter pending only
-    filtered = filtered.filter((t) => t.status === 'pending');
+    // Filter pending only (unless showing all)
+    if (!mostrarTodasTransacoes) {
+      filtered = filtered.filter((t) => t.status === 'pending');
+    }
+
+    // Filter by origem
+    if (filtroOrigem !== 'todos') {
+      // For now, we only have Tesouraria (TE) type - others would need category mapping
+      // This is a placeholder for future implementation
+    }
 
     // Filter by search
     if (searchTransacoes.trim()) {
@@ -272,7 +313,7 @@ const Reconciliation = () => {
           return [{ ...matchedTx, _matchScore: positionedStatementItem._matchScore }];
         }
         return [];
-      } else {
+      } else if (!mostrarTodasTransacoes) {
         // No match (IL) - filter by type only
         const statementType = positionedStatementItem.type;
         filtered = filtered.filter((t) => {
@@ -305,7 +346,7 @@ const Reconciliation = () => {
     return [...filtered].sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     );
-  }, [transactions, selectedAccountId, searchTransacoes, positionedStatementItem]);
+  }, [transactions, selectedAccountId, searchTransacoes, positionedStatementItem, mostrarTodasTransacoes, filtroOrigem]);
 
   // Calculate totals for selected items
   const statementTotal = useMemo(() => {
@@ -347,6 +388,7 @@ const Reconciliation = () => {
   const canConciliar = selectedStatement.length > 0 && selectedTransactions.length > 0 && allSelectedStatementPending;
   const canLancar = selectedStatement.length > 0 && selectedTransactions.length === 0 && allSelectedStatementPending;
   const canDesconciliar = selectedStatement.length > 0 && allSelectedStatementReconciled;
+  const canRemover = selectedStatement.length > 0;
 
   // Auto-position on first statement item when filter changes
   useEffect(() => {
@@ -427,7 +469,7 @@ const Reconciliation = () => {
     }
   };
 
-  // Handle create transaction (Lançar)
+  // Handle create transaction (Lançar Tesouraria)
   const handleLancar = () => {
     if (!canLancar) return;
     setShowLancarDialog(true);
@@ -513,6 +555,43 @@ const Reconciliation = () => {
     }
   };
 
+  // Handle remove
+  const handleRemover = () => {
+    if (!canRemover) return;
+    setShowRemoverDialog(true);
+  };
+
+  const executeRemover = async () => {
+    setIsProcessing(true);
+
+    try {
+      for (const entry of selectedStatementItems) {
+        await deleteStatementMutation.mutateAsync(entry.id);
+      }
+
+      toast({
+        title: "Registros removidos",
+        description: `${selectedStatementItems.length} registro(s) removido(s) do extrato`,
+      });
+
+      setSelectedStatement([]);
+      setProcessedEntries(prev => {
+        const next = new Map(prev);
+        selectedStatementItems.forEach(e => next.delete(e.id));
+        return next;
+      });
+    } catch (error) {
+      toast({
+        title: "Erro ao remover",
+        description: "Não foi possível remover os registros",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+      setShowRemoverDialog(false);
+    }
+  };
+
   const formatDate = (dateStr: string) => {
     try {
       const date = parseISO(dateStr);
@@ -595,7 +674,7 @@ const Reconciliation = () => {
       <AlertDialog open={showLancarDialog} onOpenChange={setShowLancarDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Criar Lançamentos</AlertDialogTitle>
+            <AlertDialogTitle>Lançar Tesouraria</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div>
                 <p>Deseja criar lançamentos para os {selectedStatementItems.length} registro(s) selecionado(s)?</p>
@@ -654,6 +733,31 @@ const Reconciliation = () => {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Remover Dialog */}
+      <AlertDialog open={showRemoverDialog} onOpenChange={setShowRemoverDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar Remoção</AlertDialogTitle>
+            <AlertDialogDescription>
+              Deseja remover {selectedStatementItems.length} registro(s) do extrato? Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={executeRemover} disabled={isProcessing} className="bg-red-600 hover:bg-red-700">
+              {isProcessing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Processando...
+                </>
+              ) : (
+                'Remover'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <div className="flex flex-col h-[calc(100vh-12rem)] gap-4">
         {/* When no account selected */}
         {!selectedAccountId && (
@@ -670,8 +774,9 @@ const Reconciliation = () => {
 
         {selectedAccountId && (
           <>
-            {/* Header Actions */}
+            {/* Header Actions - Following reference layout */}
             <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+              {/* Left side - Location filters */}
               <div className="flex items-center gap-2">
                 <Button
                   variant={filtroLocalizacao === 'todos' ? 'default' : 'outline'}
@@ -681,84 +786,59 @@ const Reconciliation = () => {
                   Todos
                 </Button>
                 <Button
-                  variant={filtroLocalizacao === 'pendente' ? 'default' : 'outline'}
+                  variant={filtroLocalizacao === 'localizado' ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => setFiltroLocalizacao('pendente')}
-                  className="gap-1"
-                >
-                  <SearchX className="h-3 w-3" />
-                  Pendentes
-                </Button>
-                <Button
-                  variant={filtroLocalizacao === 'conciliado' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setFiltroLocalizacao('conciliado')}
+                  onClick={() => setFiltroLocalizacao('localizado')}
                   className="gap-1"
                 >
                   <Search className="h-3 w-3" />
-                  Conciliados
+                  Localizado
+                </Button>
+                <Button
+                  variant={filtroLocalizacao === 'nao_localizado' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setFiltroLocalizacao('nao_localizado')}
+                  className="gap-1"
+                >
+                  <SearchX className="h-3 w-3" />
+                  Não localizado
                 </Button>
               </div>
 
-              <div className="flex items-center gap-4">
-                {(selectedStatement.length > 0 || selectedTransactions.length > 0) && (
-                  <div className="flex items-center gap-1.5 text-xs">
-                    {isBalanced && selectedStatement.length > 0 ? (
-                      <CheckCircle2 className="w-3 h-3 text-green-600" />
-                    ) : (
-                      <AlertTriangle className="w-3 h-3 text-yellow-600" />
-                    )}
-                    <span className="text-muted-foreground">
-                      Diferença:{" "}
-                      <span className={cn("font-semibold", isBalanced ? "text-green-600" : "text-yellow-600")}>
-                        {(statementTotal - transactionsTotal).toLocaleString("pt-BR", {
-                          style: "currency",
-                          currency: "BRL",
-                        })}
-                      </span>
-                    </span>
-                  </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <Button
-                    onClick={processReconciliation}
-                    size="sm"
-                    variant="secondary"
-                    className="gap-1"
-                  >
-                    <Play className="h-3 w-3" />
-                    Processar
-                  </Button>
-                  <Button
-                    onClick={handleConciliar}
-                    disabled={!canConciliar}
-                    size="sm"
-                    className="gap-1"
-                  >
-                    <Link2 className="h-3 w-3" />
-                    Conciliar
-                  </Button>
-                  <Button
-                    onClick={handleLancar}
-                    disabled={!canLancar}
-                    size="sm"
-                    variant="outline"
-                    className="gap-1"
-                  >
-                    <Plus className="h-3 w-3" />
-                    Lançar
-                  </Button>
-                  <Button
-                    onClick={handleDesconciliar}
-                    disabled={!canDesconciliar}
-                    size="sm"
-                    variant="destructive"
-                    className="gap-1"
-                  >
-                    <Unlink className="h-3 w-3" />
-                    Desconciliar
-                  </Button>
-                </div>
+              {/* Right side - Action buttons with colors from reference */}
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={handleConciliar}
+                  disabled={!canConciliar}
+                  size="sm"
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white"
+                >
+                  Conciliar
+                </Button>
+                <Button
+                  onClick={handleLancar}
+                  disabled={!canLancar}
+                  size="sm"
+                  className="bg-blue-500 hover:bg-blue-600 text-white"
+                >
+                  Lançar Tesouraria
+                </Button>
+                <Button
+                  onClick={handleDesconciliar}
+                  disabled={!canDesconciliar}
+                  size="sm"
+                  className="bg-amber-500 hover:bg-amber-600 text-white"
+                >
+                  Desconciliar
+                </Button>
+                <Button
+                  onClick={handleRemover}
+                  disabled={!canRemover}
+                  size="sm"
+                  className="bg-red-400 hover:bg-red-500 text-white"
+                >
+                  Remover
+                </Button>
               </div>
             </div>
 
@@ -804,7 +884,7 @@ const Reconciliation = () => {
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Buscar por descrição, documento, valor..."
+                      placeholder="Buscar por descrição, documento, CPF/CNPJ, valor, data..."
                       value={searchExtrato}
                       onChange={(e) => setSearchExtrato(e.target.value)}
                       className="pl-9 pr-9 h-9 text-sm"
@@ -850,7 +930,7 @@ const Reconciliation = () => {
                     </div>
                   ) : filteredStatementEntries.length === 0 ? (
                     <div className="p-8 text-center text-muted-foreground">
-                      Nenhuma transação no extrato
+                      Nenhuma transação pendente no extrato
                     </div>
                   ) : (
                     filteredStatementEntries.map((entry) => (
@@ -893,12 +973,6 @@ const Reconciliation = () => {
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium truncate">{entry.description}</p>
                           <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mt-0.5">
-                            {selectedAccount && (
-                              <>
-                                <BankLogo bankName={selectedAccount.bank} size="xs" />
-                                <span>•</span>
-                              </>
-                            )}
                             <span>{formatDate(entry.date)}</span>
                             {entry.check_number && (
                               <>
@@ -955,28 +1029,58 @@ const Reconciliation = () => {
                 <div className="p-4 border-b border-border bg-muted/30">
                   <div className="flex items-center justify-between mb-2">
                     <div>
-                      <h3 className="font-semibold">Transações Previstas</h3>
+                      <h3 className="font-semibold">Transações</h3>
                       <p className="text-sm text-muted-foreground">
                         {filteredTransactions.length} lançamentos do sistema
-                        {positionedStatementItem?._action === 'CL' && (
-                          <span className="ml-1 text-blue-600">(associada)</span>
-                        )}
-                        {positionedStatementItem?._action === 'IL' && (
-                          <span className="ml-1 text-orange-600">(filtrado por tipo)</span>
-                        )}
                       </p>
                     </div>
-                    {isLoading && (
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        <span className="text-xs">Carregando...</span>
-                      </div>
-                    )}
+                    <div className="flex gap-1 bg-muted p-1 rounded-lg">
+                      <Button
+                        variant={filtroOrigem === 'todos' ? 'default' : 'ghost'}
+                        size="sm"
+                        onClick={() => setFiltroOrigem('todos')}
+                        className="text-xs h-7 px-3"
+                      >
+                        Todos
+                      </Button>
+                      <Button
+                        variant={filtroOrigem === 'TE' ? 'default' : 'ghost'}
+                        size="sm"
+                        onClick={() => setFiltroOrigem('TE')}
+                        className="text-xs h-7 px-3"
+                      >
+                        Tesouraria
+                      </Button>
+                      <Button
+                        variant={filtroOrigem === 'CR' ? 'default' : 'ghost'}
+                        size="sm"
+                        onClick={() => setFiltroOrigem('CR')}
+                        className="text-xs h-7 px-3"
+                      >
+                        CR
+                      </Button>
+                      <Button
+                        variant={filtroOrigem === 'CP' ? 'default' : 'ghost'}
+                        size="sm"
+                        onClick={() => setFiltroOrigem('CP')}
+                        className="text-xs h-7 px-3"
+                      >
+                        CP
+                      </Button>
+                      <Button
+                        variant={filtroOrigem === 'PV' ? 'default' : 'ghost'}
+                        size="sm"
+                        onClick={() => setFiltroOrigem('PV')}
+                        className="text-xs h-7 px-3"
+                      >
+                        PV
+                      </Button>
+                    </div>
                   </div>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Buscar por descrição, valor..."
+                      placeholder="Buscar por pessoa, observação, documento, valor, data..."
                       value={searchTransacoes}
                       onChange={(e) => setSearchTransacoes(e.target.value)}
                       className="pl-9 pr-9 h-9 text-sm"
@@ -989,6 +1093,17 @@ const Reconciliation = () => {
                         <X className="h-4 w-4" />
                       </button>
                     )}
+                  </div>
+                  {/* Exibir todas transações checkbox */}
+                  <div className="flex items-center gap-2 mt-2">
+                    <Checkbox
+                      id="mostrarTodas"
+                      checked={mostrarTodasTransacoes}
+                      onCheckedChange={(checked) => setMostrarTodasTransacoes(!!checked)}
+                    />
+                    <label htmlFor="mostrarTodas" className="text-xs text-muted-foreground cursor-pointer">
+                      Exibir todas transações
+                    </label>
                   </div>
                 </div>
 
@@ -1022,9 +1137,7 @@ const Reconciliation = () => {
                     </div>
                   ) : filteredTransactions.length === 0 ? (
                     <div className="p-8 text-center text-muted-foreground">
-                      {positionedStatementItem?._action === 'IL' 
-                        ? "Nenhum lançamento previsto compatível" 
-                        : "Nenhum lançamento pendente no sistema"}
+                      Nenhum lançamento pendente no sistema
                     </div>
                   ) : (
                     filteredTransactions.map((t) => {
@@ -1108,6 +1221,23 @@ const Reconciliation = () => {
                   </div>
                 )}
               </Card>
+            </div>
+
+            {/* Bottom action bar with Processar button */}
+            <div className="flex justify-end pt-2">
+              <Button
+                onClick={processReconciliation}
+                size="sm"
+                className="gap-2 bg-primary hover:bg-primary/90"
+                disabled={isRefreshing}
+              >
+                {isRefreshing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                Processar Conciliação
+              </Button>
             </div>
           </>
         )}
