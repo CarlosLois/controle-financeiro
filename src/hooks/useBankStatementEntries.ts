@@ -57,12 +57,11 @@ export function usePendingStatementEntries(accountId?: string) {
   const { user } = useAuth();
 
   return useQuery({
-    queryKey: ['bank_statement_entries', 'pending', accountId],
+    queryKey: ['bank_statement_entries', 'all', accountId],
     queryFn: async () => {
       let query = supabase
         .from('bank_statement_entries')
         .select('*')
-        .eq('status', 'pending')
         .order('date', { ascending: false });
 
       if (accountId) {
