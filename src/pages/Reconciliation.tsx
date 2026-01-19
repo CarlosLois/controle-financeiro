@@ -68,7 +68,7 @@ const Reconciliation = () => {
   // Filter states
   const [filtroLocalizacao, setFiltroLocalizacao] = useState<'todos' | 'localizado' | 'nao_localizado'>('todos');
   const [filtroTipo, setFiltroTipo] = useState<'todos' | 'C' | 'D'>('todos');
-  const [filtroOrigem, setFiltroOrigem] = useState<'todos' | 'TE' | 'CR' | 'CP' | 'PV'>('todos');
+  const [filtroPendencia, setFiltroPendencia] = useState<'todos' | 'pending' | 'reconciled'>('todos');
   const [searchExtrato, setSearchExtrato] = useState('');
   const [searchTransacoes, setSearchTransacoes] = useState('');
   const [mostrarTodasTransacoes, setMostrarTodasTransacoes] = useState(false);
@@ -234,6 +234,13 @@ const Reconciliation = () => {
       });
     }
 
+    // Filter by pendency status
+    if (filtroPendencia === 'pending') {
+      filtered = filtered.filter((e) => e.status === 'pending');
+    } else if (filtroPendencia === 'reconciled') {
+      filtered = filtered.filter((e) => e.status === 'reconciled');
+    }
+
     // Filter by type
     if (filtroTipo === 'C') {
       filtered = filtered.filter((e) => e.type === 'C');
@@ -323,11 +330,6 @@ const Reconciliation = () => {
       });
     }
 
-    // Filter by origem
-    if (filtroOrigem !== 'todos') {
-      // For now, we only have Tesouraria (TE) type - others would need category mapping
-      // This is a placeholder for future implementation
-    }
 
     // Filter by search
     if (searchTransacoes.trim()) {
@@ -380,7 +382,7 @@ const Reconciliation = () => {
     return [...filtered].sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     );
-  }, [transactions, selectedAccountId, searchTransacoes, positionedStatementItem, mostrarTodasTransacoes, filtroOrigem, reconciledTransactionIds, suggestedMatchTransactionIds]);
+  }, [transactions, selectedAccountId, searchTransacoes, positionedStatementItem, mostrarTodasTransacoes, reconciledTransactionIds, suggestedMatchTransactionIds]);
 
   // Calculate totals for selected items
   const statementTotal = useMemo(() => {
@@ -888,31 +890,61 @@ const Reconciliation = () => {
                         {filteredStatementEntries.length} transações do banco
                       </p>
                     </div>
-                    <div className="flex gap-1 bg-muted p-1 rounded-lg">
-                      <Button
-                        variant={filtroTipo === 'todos' ? 'default' : 'ghost'}
-                        size="sm"
-                        onClick={() => setFiltroTipo('todos')}
-                        className="text-xs h-7 px-3"
-                      >
-                        Todos
-                      </Button>
-                      <Button
-                        variant={filtroTipo === 'C' ? 'default' : 'ghost'}
-                        size="sm"
-                        onClick={() => setFiltroTipo('C')}
-                        className="text-xs h-7 px-3"
-                      >
-                        Crédito
-                      </Button>
-                      <Button
-                        variant={filtroTipo === 'D' ? 'default' : 'ghost'}
-                        size="sm"
-                        onClick={() => setFiltroTipo('D')}
-                        className="text-xs h-7 px-3"
-                      >
-                        Débito
-                      </Button>
+                    <div className="flex items-center gap-2">
+                      {/* Status filter */}
+                      <div className="flex gap-1 bg-muted p-1 rounded-lg">
+                        <Button
+                          variant={filtroPendencia === 'todos' ? 'default' : 'ghost'}
+                          size="sm"
+                          onClick={() => setFiltroPendencia('todos')}
+                          className="text-xs h-7 px-3"
+                        >
+                          Todos
+                        </Button>
+                        <Button
+                          variant={filtroPendencia === 'pending' ? 'default' : 'ghost'}
+                          size="sm"
+                          onClick={() => setFiltroPendencia('pending')}
+                          className="text-xs h-7 px-3"
+                        >
+                          Pendente
+                        </Button>
+                        <Button
+                          variant={filtroPendencia === 'reconciled' ? 'default' : 'ghost'}
+                          size="sm"
+                          onClick={() => setFiltroPendencia('reconciled')}
+                          className="text-xs h-7 px-3"
+                        >
+                          Conciliado
+                        </Button>
+                      </div>
+                      {/* Type filter */}
+                      <div className="flex gap-1 bg-muted p-1 rounded-lg">
+                        <Button
+                          variant={filtroTipo === 'todos' ? 'default' : 'ghost'}
+                          size="sm"
+                          onClick={() => setFiltroTipo('todos')}
+                          className="text-xs h-7 px-3"
+                        >
+                          Todos
+                        </Button>
+                        <Button
+                          variant={filtroTipo === 'C' ? 'default' : 'ghost'}
+                          size="sm"
+                          onClick={() => setFiltroTipo('C')}
+                          className="text-xs h-7 px-3"
+                        >
+                          Crédito
+                        </Button>
+                        <Button
+                          variant={filtroTipo === 'D' ? 'default' : 'ghost'}
+                          size="sm"
+                          onClick={() => setFiltroTipo('D')}
+                          className="text-xs h-7 px-3"
+                        >
+                          Débito
+                        </Button>
+                      </div>
                     </div>
                   </div>
                   <div className="relative">
@@ -1069,48 +1101,6 @@ const Reconciliation = () => {
                       <p className="text-sm text-muted-foreground">
                         {filteredTransactions.length} lançamentos do sistema
                       </p>
-                    </div>
-                    <div className="flex gap-1 bg-muted p-1 rounded-lg">
-                      <Button
-                        variant={filtroOrigem === 'todos' ? 'default' : 'ghost'}
-                        size="sm"
-                        onClick={() => setFiltroOrigem('todos')}
-                        className="text-xs h-7 px-3"
-                      >
-                        Todos
-                      </Button>
-                      <Button
-                        variant={filtroOrigem === 'TE' ? 'default' : 'ghost'}
-                        size="sm"
-                        onClick={() => setFiltroOrigem('TE')}
-                        className="text-xs h-7 px-3"
-                      >
-                        Tesouraria
-                      </Button>
-                      <Button
-                        variant={filtroOrigem === 'CR' ? 'default' : 'ghost'}
-                        size="sm"
-                        onClick={() => setFiltroOrigem('CR')}
-                        className="text-xs h-7 px-3"
-                      >
-                        CR
-                      </Button>
-                      <Button
-                        variant={filtroOrigem === 'CP' ? 'default' : 'ghost'}
-                        size="sm"
-                        onClick={() => setFiltroOrigem('CP')}
-                        className="text-xs h-7 px-3"
-                      >
-                        CP
-                      </Button>
-                      <Button
-                        variant={filtroOrigem === 'PV' ? 'default' : 'ghost'}
-                        size="sm"
-                        onClick={() => setFiltroOrigem('PV')}
-                        className="text-xs h-7 px-3"
-                      >
-                        PV
-                      </Button>
                     </div>
                   </div>
                   <div className="relative">
