@@ -983,12 +983,14 @@ const Reconciliation = () => {
                           </div>
                           <div className="flex items-center gap-1 mt-1">
                             <Badge
-                              variant={entry.status === 'pending' ? 'destructive' : 'secondary'}
-                              className="text-[9px] px-1 py-0"
+                              variant={entry._action === 'CL' ? 'default' : entry.status === 'pending' ? 'destructive' : 'secondary'}
+                              className={cn(
+                                "text-[9px] px-1 py-0",
+                                entry._action === 'CL' && "bg-blue-500 hover:bg-blue-600"
+                              )}
                             >
-                              {entry.status === 'pending' ? 'Pendente' : 'Conciliado'}
+                              {entry._action === 'CL' ? 'Conciliar' : entry.status === 'pending' ? 'Pendente' : 'Conciliado'}
                             </Badge>
-                            {getActionBadge(entry._action)}
                           </div>
                         </div>
                         <span
@@ -1188,8 +1190,8 @@ const Reconciliation = () => {
                               <Badge variant="outline" className="text-[9px] px-1 py-0">
                                 {t.type === 'income' ? 'Receita' : t.type === 'expense' ? 'Despesa' : 'Transferência'}
                               </Badge>
-                              {isHighMatch && (
-                                <Badge className="text-[9px] px-1 py-0 bg-green-500">Match</Badge>
+                              {positionedStatementItem?._action === 'CL' && positionedStatementItem?._matchedTransactionId === t.id && (
+                                <Badge className="text-[9px] px-1 py-0 bg-blue-500 hover:bg-blue-600">Conciliar</Badge>
                               )}
                             </div>
                           </div>
