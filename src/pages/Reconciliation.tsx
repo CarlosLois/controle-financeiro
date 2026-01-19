@@ -622,7 +622,7 @@ const Reconciliation = () => {
   const isLoading = isLoadingTransactions || isLoadingStatement;
 
   return (
-    <MainLayout title="Conciliação" subtitle="Compare e concilie transações bancárias">
+    <MainLayout title="Conciliação" subtitle="Compare e concilie transações bancárias" onRefresh={processReconciliation}>
       {/* Conciliar Dialog */}
       <AlertDialog open={showConciliarDialog} onOpenChange={setShowConciliarDialog}>
         <AlertDialogContent>
