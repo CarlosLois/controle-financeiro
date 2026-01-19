@@ -275,6 +275,15 @@ const Reconciliation = () => {
     return filteredStatementEntries.find((e) => e.id === positionedStatementId) || null;
   }, [positionedStatementId, filteredStatementEntries]);
 
+  // Get IDs of transactions that are already reconciled with statement entries
+  const reconciledTransactionIds = useMemo(() => {
+    return new Set(
+      statementEntries
+        .filter(e => e.status === 'reconciled' && e.matched_transaction_id)
+        .map(e => e.matched_transaction_id!)
+    );
+  }, [statementEntries]);
+
   // Filter transactions based on positioned statement item
   const filteredTransactions = useMemo(() => {
     let filtered = transactions;
@@ -284,9 +293,9 @@ const Reconciliation = () => {
       filtered = filtered.filter((t) => t.account_id === selectedAccountId);
     }
 
-    // Filter pending only (unless showing all)
+    // Filter out transactions already reconciled (unless showing all)
     if (!mostrarTodasTransacoes) {
-      filtered = filtered.filter((t) => t.status === 'pending');
+      filtered = filtered.filter((t) => t.status === 'pending' && !reconciledTransactionIds.has(t.id));
     }
 
     // Filter by origem
@@ -346,7 +355,7 @@ const Reconciliation = () => {
     return [...filtered].sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     );
-  }, [transactions, selectedAccountId, searchTransacoes, positionedStatementItem, mostrarTodasTransacoes, filtroOrigem]);
+  }, [transactions, selectedAccountId, searchTransacoes, positionedStatementItem, mostrarTodasTransacoes, filtroOrigem, reconciledTransactionIds]);
 
   // Calculate totals for selected items
   const statementTotal = useMemo(() => {
@@ -989,7 +998,7 @@ const Reconciliation = () => {
                                 entry._action === 'CL' && "bg-blue-500 hover:bg-blue-600"
                               )}
                             >
-                              {entry._action === 'CL' ? 'Conciliar' : entry.status === 'pending' ? 'Pendente' : 'Conciliado'}
+                              {entry._action === 'CL' ? 'Conciliado' : entry.status === 'pending' ? 'Pendente' : 'Conciliado'}
                             </Badge>
                           </div>
                         </div>
@@ -1191,7 +1200,7 @@ const Reconciliation = () => {
                                 {t.type === 'income' ? 'Receita' : t.type === 'expense' ? 'Despesa' : 'Transferência'}
                               </Badge>
                               {positionedStatementItem?._action === 'CL' && positionedStatementItem?._matchedTransactionId === t.id && (
-                                <Badge className="text-[9px] px-1 py-0 bg-blue-500 hover:bg-blue-600">Conciliar</Badge>
+                                <Badge className="text-[9px] px-1 py-0 bg-blue-500 hover:bg-blue-600">Conciliado</Badge>
                               )}
                             </div>
                           </div>
