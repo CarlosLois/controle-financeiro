@@ -99,23 +99,26 @@ export function useImportBankStatement() {
       if (!orgData) throw new Error("Organização não encontrada");
 
       // Fetch existing entries for this account to check for duplicates
+      // Using composite key: account_id (bank), type, date, amount, description
       const { data: existingEntries, error: fetchError } = await supabase
         .from('bank_statement_entries')
-        .select('transaction_id, date, amount, type, description')
+        .select('date, amount, type, description')
         .eq('account_id', accountId);
 
       if (fetchError) throw fetchError;
 
       // Create a set of unique keys from existing entries for fast lookup
+      // Key: type_date_amount_description (same as DB unique index)
       const existingKeys = new Set(
         (existingEntries || []).map(entry => 
-          `${entry.transaction_id || ''}_${entry.date}_${entry.amount}_${entry.type}_${entry.description}`
+          `${entry.type}_${entry.date}_${entry.amount}_${entry.description}`
         )
       );
 
-      // Filter out duplicates by comparing all relevant fields
+      // Filter out duplicates by comparing: type, date, amount, description
+      // This allows same FITID from different banks and handles banks without FITID
       const newTransactions = transactions.filter(tx => {
-        const key = `${tx.fitId || ''}_${tx.datePosted}_${tx.amount}_${tx.type}_${tx.memo}`;
+        const key = `${tx.type}_${tx.datePosted}_${tx.amount}_${tx.memo}`;
         return !existingKeys.has(key);
       });
 
