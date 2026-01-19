@@ -234,11 +234,21 @@ const Reconciliation = () => {
       });
     }
 
-    // Filter by pendency status
+    // Filter by pendency status (based on TAG shown: Pendente = pending, Conciliado = reconciled or has CL match)
     if (filtroPendencia === 'pending') {
-      filtered = filtered.filter((e) => e.status === 'pending');
+      // Pendente: status is pending AND no suggested match (CL)
+      filtered = filtered.filter((e) => {
+        const processed = processedEntries.get(e.id);
+        const hasSuggestedMatch = processed?.action === 'CL';
+        return e.status === 'pending' && !hasSuggestedMatch;
+      });
     } else if (filtroPendencia === 'reconciled') {
-      filtered = filtered.filter((e) => e.status === 'reconciled');
+      // Conciliado: status is reconciled OR has suggested match (CL)
+      filtered = filtered.filter((e) => {
+        const processed = processedEntries.get(e.id);
+        const hasSuggestedMatch = processed?.action === 'CL';
+        return e.status === 'reconciled' || hasSuggestedMatch;
+      });
     }
 
     // Filter by type
