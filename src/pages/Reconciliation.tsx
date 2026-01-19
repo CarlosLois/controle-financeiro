@@ -275,7 +275,7 @@ const Reconciliation = () => {
     return filteredStatementEntries.find((e) => e.id === positionedStatementId) || null;
   }, [positionedStatementId, filteredStatementEntries]);
 
-  // Get IDs of transactions that are already reconciled with statement entries
+  // Get IDs of transactions that are already reconciled with statement entries (from database)
   const reconciledTransactionIds = useMemo(() => {
     return new Set(
       statementEntries
@@ -283,6 +283,17 @@ const Reconciliation = () => {
         .map(e => e.matched_transaction_id!)
     );
   }, [statementEntries]);
+
+  // Get IDs of transactions that are suggested as match (CL) by the automatic processing
+  const suggestedMatchTransactionIds = useMemo(() => {
+    const ids = new Set<string>();
+    processedEntries.forEach((value, entryId) => {
+      if (value.action === 'CL' && value.matchedTransactionId) {
+        ids.add(value.matchedTransactionId);
+      }
+    });
+    return ids;
+  }, [processedEntries]);
 
   // Filter transactions based on positioned statement item
   const filteredTransactions = useMemo(() => {
@@ -293,9 +304,23 @@ const Reconciliation = () => {
       filtered = filtered.filter((t) => t.account_id === selectedAccountId);
     }
 
-    // Filter out transactions already reconciled (unless showing all)
+    // Filter out transactions already reconciled or with suggested match (unless showing all)
     if (!mostrarTodasTransacoes) {
-      filtered = filtered.filter((t) => t.status === 'pending' && !reconciledTransactionIds.has(t.id));
+      filtered = filtered.filter((t) => {
+        // Exclude if transaction is not pending or already reconciled in DB
+        if (t.status !== 'pending' || reconciledTransactionIds.has(t.id)) {
+          return false;
+        }
+        // Exclude if transaction has a suggested match with ANOTHER statement entry (not the current positioned one)
+        if (suggestedMatchTransactionIds.has(t.id)) {
+          // Allow if this is the match for the currently positioned statement
+          if (positionedStatementItem?._matchedTransactionId === t.id) {
+            return true;
+          }
+          return false;
+        }
+        return true;
+      });
     }
 
     // Filter by origem
@@ -355,7 +380,7 @@ const Reconciliation = () => {
     return [...filtered].sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     );
-  }, [transactions, selectedAccountId, searchTransacoes, positionedStatementItem, mostrarTodasTransacoes, filtroOrigem, reconciledTransactionIds]);
+  }, [transactions, selectedAccountId, searchTransacoes, positionedStatementItem, mostrarTodasTransacoes, filtroOrigem, reconciledTransactionIds, suggestedMatchTransactionIds]);
 
   // Calculate totals for selected items
   const statementTotal = useMemo(() => {
