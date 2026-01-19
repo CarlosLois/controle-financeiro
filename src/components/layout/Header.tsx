@@ -1,4 +1,5 @@
-import { Bell, Moon, Sun } from 'lucide-react';
+import { Bell, Moon, Sun, RefreshCw } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEffect, useState } from 'react';
@@ -27,9 +28,11 @@ import { BankLogo } from '@/components/BankLogo';
 interface HeaderProps {
   title: string;
   subtitle?: string;
+  onRefresh?: () => void;
 }
 
-export function Header({ title, subtitle }: HeaderProps) {
+export function Header({ title, subtitle, onRefresh }: HeaderProps) {
+  const location = useLocation();
   const { user } = useAuth();
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [hasNotifications] = useState(true);
@@ -74,30 +77,42 @@ export function Header({ title, subtitle }: HeaderProps) {
       {/* Right side */}
       <div className="flex items-center gap-3">
         {/* Account Selector */}
-        <div className="flex items-center gap-2">
-          {selectedAccount && (
-            <BankLogo bankName={selectedAccount.bank} size="sm" />
-          )}
-          <Select
-            value={selectedAccountId || "all"}
-            onValueChange={handleAccountChange}
-          >
-            <SelectTrigger className="w-[220px] bg-muted/50 border-0">
-              <SelectValue placeholder="Todas as contas" />
-            </SelectTrigger>
-            <SelectContent className="bg-popover border border-border shadow-lg z-50">
-              <SelectItem value="all">Todas as contas</SelectItem>
-              {bankAccounts.map((account) => (
-                <SelectItem key={account.id} value={account.id}>
-                  <div className="flex items-center gap-2">
-                    <BankLogo bankName={account.bank} size="sm" />
-                    <span>{account.name}</span>
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <Select
+          value={selectedAccountId || "all"}
+          onValueChange={handleAccountChange}
+        >
+          <SelectTrigger className="w-[220px] bg-muted/50 border-0">
+            <SelectValue placeholder="Todas as contas" />
+          </SelectTrigger>
+          <SelectContent className="bg-popover border border-border shadow-lg z-50">
+            <SelectItem value="all">Todas as contas</SelectItem>
+            {bankAccounts.map((account) => (
+              <SelectItem key={account.id} value={account.id}>
+                <div className="flex items-center gap-2">
+                  <BankLogo bankName={account.bank} size="sm" />
+                  <span>{account.name}</span>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Refresh Button - only on reconciliation page */}
+        {location.pathname === '/reconciliation' && onRefresh && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onRefresh}
+                className="h-9 w-9 text-muted-foreground hover:text-foreground"
+              >
+                <RefreshCw className="h-5 w-5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Processar Conciliação</TooltipContent>
+          </Tooltip>
+        )}
 
         {/* Theme Toggle */}
         <Tooltip>

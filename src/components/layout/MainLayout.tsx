@@ -7,9 +7,10 @@ interface MainLayoutProps {
   children: ReactNode;
   title: string;
   subtitle?: string;
+  onRefresh?: () => void;
 }
 
-export function MainLayout({ children, title, subtitle }: MainLayoutProps) {
+export function MainLayout({ children, title, subtitle, onRefresh }: MainLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
@@ -19,7 +20,7 @@ export function MainLayout({ children, title, subtitle }: MainLayoutProps) {
         "flex flex-col min-h-screen transition-all duration-300",
         sidebarCollapsed ? "pl-16" : "pl-64"
       )}>
-        <Header title={title} subtitle={subtitle} />
+        <Header title={title} subtitle={subtitle} onRefresh={onRefresh} />
         <main className="flex-1 p-6">
           {children}
         </main>
