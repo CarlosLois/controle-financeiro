@@ -228,12 +228,16 @@ const Reconciliation = () => {
     if (filtroLocalizacao === 'localizado') {
       filtered = filtered.filter((e) => {
         const processed = processedEntries.get(e.id);
-        return processed?.action === 'CL';
+        const hasSuggestedMatch = processed?.action === 'CL';
+        const hasDbMatch = e.status === 'reconciled' && !!e.matched_transaction_id;
+        return hasSuggestedMatch || hasDbMatch;
       });
     } else if (filtroLocalizacao === 'nao_localizado') {
       filtered = filtered.filter((e) => {
         const processed = processedEntries.get(e.id);
-        return !processed?.action || processed?.action === 'IL';
+        const hasSuggestedMatch = processed?.action === 'CL';
+        const hasDbMatch = e.status === 'reconciled' && !!e.matched_transaction_id;
+        return !hasSuggestedMatch && !hasDbMatch;
       });
     }
 
@@ -279,7 +283,10 @@ const Reconciliation = () => {
     const entriesWithAction: StatementEntryWithAction[] = filtered.map(e => {
       const processed = processedEntries.get(e.id);
       const manualTag = entryTags.get(e.id);
-      
+
+      const dbMatchedTransactionId = e.matched_transaction_id;
+      const hasDbMatch = e.status === 'reconciled' && !!dbMatchedTransactionId;
+
       // Determine the tag to show
       let tag: TagType = 'pending';
       if (e.status === 'reconciled') {
@@ -289,12 +296,17 @@ const Reconciliation = () => {
       } else if (processed?.action === 'CL') {
         tag = 'conciliado';
       }
-      
+
+      const action: ActionType = hasDbMatch ? 'CL' : (processed?.action || null);
+      const matchedTransactionId = hasDbMatch
+        ? dbMatchedTransactionId!
+        : (processed?.matchedTransactionId || null);
+
       return {
         ...e,
-        _action: processed?.action || null,
-        _matchedTransactionId: processed?.matchedTransactionId || null,
-        _matchScore: processed?.matchScore || 0,
+        _action: action,
+        _matchedTransactionId: matchedTransactionId,
+        _matchScore: hasDbMatch ? 100 : (processed?.matchScore || 0),
         _tag: tag,
       };
     });
@@ -956,10 +968,8 @@ const Reconciliation = () => {
                         <Checkbox
                           checked={selectedStatement.includes(entry.id)}
                           className="mt-1"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleStatement(entry);
-                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          onCheckedChange={() => toggleStatement(entry)}
                         />
                         <div
                           className={cn(
@@ -1137,6 +1147,7 @@ const Reconciliation = () => {
                             checked={selectedTransactions.includes(t.id)}
                             className="mt-1"
                             onClick={(e) => e.stopPropagation()}
+                            onCheckedChange={() => toggleTransaction(t.id)}
                           />
                           <div
                             className={cn(
