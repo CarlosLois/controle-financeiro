@@ -284,7 +284,7 @@ const Reconciliation = () => {
     return entriesWithAction.sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
-  }, [statementEntries, selectedAccountId, filtroLocalizacao, filtroTipo, searchExtrato, processedEntries]);
+  }, [statementEntries, selectedAccountId, filtroLocalizacao, filtroTipo, filtroPendencia, searchExtrato, processedEntries]);
 
   // Get positioned statement item
   const positionedStatementItem = useMemo(() => {
