@@ -45,11 +45,13 @@ import {
 
 // Types for action matching
 type ActionType = 'CL' | 'IL' | null;
+type TagType = 'pending' | 'conciliado' | 'incluir_lancamento' | 'remover';
 
 interface StatementEntryWithAction extends BankStatementEntry {
   _action: ActionType;
   _matchedTransactionId: string | null;
   _matchScore: number;
+  _tag: TagType;
 }
 
 const Reconciliation = () => {
@@ -76,12 +78,13 @@ const Reconciliation = () => {
 
   // Processed entries with actions
   const [processedEntries, setProcessedEntries] = useState<Map<string, { action: ActionType; matchedTransactionId: string | null; matchScore: number }>>(new Map());
+  
+  // Manual tags for entries (IL = incluir_lancamento, remover)
+  const [entryTags, setEntryTags] = useState<Map<string, 'incluir_lancamento' | 'remover'>>(new Map());
 
   // Dialogs
   const [showConciliarDialog, setShowConciliarDialog] = useState(false);
   const [showDesconciliarDialog, setShowDesconciliarDialog] = useState(false);
-  const [showLancarDialog, setShowLancarDialog] = useState(false);
-  const [showRemoverDialog, setShowRemoverDialog] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -234,20 +237,23 @@ const Reconciliation = () => {
       });
     }
 
-    // Filter by pendency status (based on TAG shown: Pendente = pending, Conciliado = reconciled or has CL match)
+    // Filter by pendency status (based on TAG)
     if (filtroPendencia === 'pending') {
-      // Pendente: status is pending AND no suggested match (CL)
+      // Pendente: only entries with tag 'pending'
       filtered = filtered.filter((e) => {
         const processed = processedEntries.get(e.id);
+        const manualTag = entryTags.get(e.id);
         const hasSuggestedMatch = processed?.action === 'CL';
-        return e.status === 'pending' && !hasSuggestedMatch;
+        // Entry is pending only if status is pending, no manual tag, and no suggested match
+        return e.status === 'pending' && !manualTag && !hasSuggestedMatch;
       });
     } else if (filtroPendencia === 'reconciled') {
-      // Conciliado: status is reconciled OR has suggested match (CL)
+      // Conciliado: entries with any non-pending tag (conciliado, incluir_lancamento, remover)
       filtered = filtered.filter((e) => {
         const processed = processedEntries.get(e.id);
+        const manualTag = entryTags.get(e.id);
         const hasSuggestedMatch = processed?.action === 'CL';
-        return e.status === 'reconciled' || hasSuggestedMatch;
+        return e.status === 'reconciled' || manualTag || hasSuggestedMatch;
       });
     }
 
@@ -269,14 +275,27 @@ const Reconciliation = () => {
       );
     }
 
-    // Add action info
+    // Add action info and calculate tag
     const entriesWithAction: StatementEntryWithAction[] = filtered.map(e => {
       const processed = processedEntries.get(e.id);
+      const manualTag = entryTags.get(e.id);
+      
+      // Determine the tag to show
+      let tag: TagType = 'pending';
+      if (e.status === 'reconciled') {
+        tag = 'conciliado';
+      } else if (manualTag) {
+        tag = manualTag;
+      } else if (processed?.action === 'CL') {
+        tag = 'conciliado';
+      }
+      
       return {
         ...e,
         _action: processed?.action || null,
         _matchedTransactionId: processed?.matchedTransactionId || null,
         _matchScore: processed?.matchScore || 0,
+        _tag: tag,
       };
     });
 
@@ -284,7 +303,7 @@ const Reconciliation = () => {
     return entriesWithAction.sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
-  }, [statementEntries, selectedAccountId, filtroLocalizacao, filtroTipo, filtroPendencia, searchExtrato, processedEntries]);
+  }, [statementEntries, selectedAccountId, filtroLocalizacao, filtroTipo, filtroPendencia, searchExtrato, processedEntries, entryTags]);
 
   // Get positioned statement item
   const positionedStatementItem = useMemo(() => {
@@ -350,8 +369,13 @@ const Reconciliation = () => {
       );
     }
 
-    // If we have a positioned statement with action CL, show only matched transaction
+    // If we have a positioned statement item
     if (positionedStatementItem) {
+      // If it has tag 'incluir_lancamento' or 'remover', don't show transactions
+      if (positionedStatementItem._tag === 'incluir_lancamento' || positionedStatementItem._tag === 'remover') {
+        return [];
+      }
+      
       if (positionedStatementItem._action === 'CL' && positionedStatementItem._matchedTransactionId) {
         // Show only the matched transaction
         const matchedTx = filtered.find(t => t.id === positionedStatementItem._matchedTransactionId);
@@ -418,23 +442,29 @@ const Reconciliation = () => {
     return filteredTransactions.filter((t) => selectedTransactions.includes(t.id));
   }, [filteredTransactions, selectedTransactions]);
 
-  // Check if all selected statement items are pending
-  const allSelectedStatementPending = useMemo(() => {
+  // Check if all selected statement items have tag 'pending'
+  const allSelectedTagPending = useMemo(() => {
     if (selectedStatementItems.length === 0) return false;
-    return selectedStatementItems.every((e) => e.status === 'pending');
+    return selectedStatementItems.every((e) => e._tag === 'pending');
   }, [selectedStatementItems]);
 
-  // Check if all selected statement items are reconciled
-  const allSelectedStatementReconciled = useMemo(() => {
+  // Check if all selected statement items have tag 'conciliado', 'incluir_lancamento', or 'remover' (not pending)
+  const allSelectedTagNotPending = useMemo(() => {
     if (selectedStatementItems.length === 0) return false;
-    return selectedStatementItems.every((e) => e.status === 'reconciled');
+    return selectedStatementItems.every((e) => 
+      e._tag === 'conciliado' || e._tag === 'incluir_lancamento' || e._tag === 'remover'
+    );
   }, [selectedStatementItems]);
 
-  // Button enable rules
-  const canConciliar = selectedStatement.length > 0 && selectedTransactions.length > 0 && allSelectedStatementPending;
-  const canLancar = selectedStatement.length > 0 && selectedTransactions.length === 0 && allSelectedStatementPending;
-  const canDesconciliar = selectedStatement.length > 0 && allSelectedStatementReconciled;
-  const canRemover = selectedStatement.length > 0;
+  // Button enable rules based on TAGs:
+  // - Conciliar: only statement entries with tag 'pending' AND transactions selected
+  const canConciliar = selectedStatement.length > 0 && selectedTransactions.length > 0 && allSelectedTagPending;
+  // - Lançar Tesouraria: only statement entries with tag 'pending' (no transactions)
+  const canLancar = selectedStatement.length > 0 && selectedTransactions.length === 0 && allSelectedTagPending;
+  // - Desconciliar: only statement entries with tag 'conciliado', 'incluir_lancamento', or 'remover'
+  const canDesconciliar = selectedStatement.length > 0 && allSelectedTagNotPending;
+  // - Remover: only statement entries with tag 'pending' (no transactions)
+  const canRemover = selectedStatement.length > 0 && selectedTransactions.length === 0 && allSelectedTagPending;
 
   // Auto-position on first statement item when filter changes
   useEffect(() => {
@@ -449,6 +479,7 @@ const Reconciliation = () => {
     setSelectedStatement([]);
     setPositionedStatementId(null);
     setProcessedEntries(new Map());
+    setEntryTags(new Map());
   }, [selectedAccountId]);
 
   // Toggle selection
@@ -515,58 +546,23 @@ const Reconciliation = () => {
     }
   };
 
-  // Handle create transaction (Lançar Tesouraria)
+  // Handle Lançar Tesouraria - adds 'incluir_lancamento' tag (does not create transaction immediately)
   const handleLancar = () => {
     if (!canLancar) return;
-    setShowLancarDialog(true);
+    // Add tag directly without dialog
+    setEntryTags(prev => {
+      const next = new Map(prev);
+      selectedStatementItems.forEach(e => next.set(e.id, 'incluir_lancamento'));
+      return next;
+    });
+    toast({
+      title: "Tag adicionada",
+      description: `${selectedStatementItems.length} registro(s) marcado(s) para Incluir Lançamento`,
+    });
+    setSelectedStatement([]);
   };
 
-  const executeLancar = async () => {
-    setIsProcessing(true);
-
-    try {
-      for (const entry of selectedStatementItems) {
-        // Create transaction from statement entry
-        await createTransactionMutation.mutateAsync({
-          account_id: entry.account_id,
-          amount: entry.amount,
-          description: entry.description,
-          date: entry.date,
-          type: entry.type === 'C' ? 'income' : 'expense',
-          status: 'completed',
-        });
-
-        // Update statement entry to reconciled
-        await updateStatusMutation.mutateAsync({
-          entryId: entry.id,
-          status: 'reconciled',
-        });
-      }
-
-      toast({
-        title: "Lançamentos criados",
-        description: `${selectedStatementItems.length} transação(ões) criada(s) e conciliada(s)`,
-      });
-
-      setSelectedStatement([]);
-      setProcessedEntries(prev => {
-        const next = new Map(prev);
-        selectedStatementItems.forEach(e => next.delete(e.id));
-        return next;
-      });
-    } catch (error) {
-      toast({
-        title: "Erro ao lançar",
-        description: "Não foi possível criar os lançamentos",
-        variant: "destructive",
-      });
-    } finally {
-      setIsProcessing(false);
-      setShowLancarDialog(false);
-    }
-  };
-
-  // Handle unreconciliation
+  // Handle unreconciliation - removes tags and reverts to pending
   const handleDesconciliar = () => {
     if (!canDesconciliar) return;
     setShowDesconciliarDialog(true);
@@ -576,16 +572,31 @@ const Reconciliation = () => {
     setIsProcessing(true);
 
     try {
-      for (const entry of selectedStatementItems) {
+      // For entries that are actually reconciled in DB, update them
+      const dbReconciledEntries = selectedStatementItems.filter(e => e.status === 'reconciled');
+      for (const entry of dbReconciledEntries) {
         await updateStatusMutation.mutateAsync({
           entryId: entry.id,
           status: 'pending',
         });
       }
 
+      // Remove all tags (manual and processed)
+      setEntryTags(prev => {
+        const next = new Map(prev);
+        selectedStatementItems.forEach(e => next.delete(e.id));
+        return next;
+      });
+      
+      setProcessedEntries(prev => {
+        const next = new Map(prev);
+        selectedStatementItems.forEach(e => next.delete(e.id));
+        return next;
+      });
+
       toast({
         title: "Desconciliação realizada",
-        description: `${selectedStatementItems.length} registro(s) desconciliado(s)`,
+        description: `${selectedStatementItems.length} registro(s) voltaram para pendente`,
       });
 
       setSelectedStatement([]);
@@ -601,41 +612,20 @@ const Reconciliation = () => {
     }
   };
 
-  // Handle remove
+  // Handle Remover - adds 'remover' tag (does not delete immediately)
   const handleRemover = () => {
     if (!canRemover) return;
-    setShowRemoverDialog(true);
-  };
-
-  const executeRemover = async () => {
-    setIsProcessing(true);
-
-    try {
-      for (const entry of selectedStatementItems) {
-        await deleteStatementMutation.mutateAsync(entry.id);
-      }
-
-      toast({
-        title: "Registros removidos",
-        description: `${selectedStatementItems.length} registro(s) removido(s) do extrato`,
-      });
-
-      setSelectedStatement([]);
-      setProcessedEntries(prev => {
-        const next = new Map(prev);
-        selectedStatementItems.forEach(e => next.delete(e.id));
-        return next;
-      });
-    } catch (error) {
-      toast({
-        title: "Erro ao remover",
-        description: "Não foi possível remover os registros",
-        variant: "destructive",
-      });
-    } finally {
-      setIsProcessing(false);
-      setShowRemoverDialog(false);
-    }
+    // Add tag directly without dialog
+    setEntryTags(prev => {
+      const next = new Map(prev);
+      selectedStatementItems.forEach(e => next.set(e.id, 'remover'));
+      return next;
+    });
+    toast({
+      title: "Tag adicionada",
+      description: `${selectedStatementItems.length} registro(s) marcado(s) para Remover`,
+    });
+    setSelectedStatement([]);
   };
 
   const formatDate = (dateStr: string) => {
@@ -716,51 +706,13 @@ const Reconciliation = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Lançar Dialog */}
-      <AlertDialog open={showLancarDialog} onOpenChange={setShowLancarDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Lançar Tesouraria</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div>
-                <p>Deseja criar lançamentos para os {selectedStatementItems.length} registro(s) selecionado(s)?</p>
-                <div className="mt-3 p-3 bg-muted rounded-md space-y-1">
-                  <p className="text-sm">
-                    <span className="text-muted-foreground">Total:</span>{" "}
-                    <span className="font-semibold">
-                      {statementTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                    </span>
-                  </p>
-                </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Serão criadas transações no sistema e os registros do extrato serão marcados como conciliados.
-                </p>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={executeLancar} disabled={isProcessing}>
-              {isProcessing ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Processando...
-                </>
-              ) : (
-                'Criar Lançamentos'
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       {/* Desconciliar Dialog */}
       <AlertDialog open={showDesconciliarDialog} onOpenChange={setShowDesconciliarDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Confirmar Desconciliação</AlertDialogTitle>
             <AlertDialogDescription>
-              Deseja desconciliar {selectedStatementItems.length} registro(s)?
+              Deseja desconciliar {selectedStatementItems.length} registro(s)? Isso removerá as tags e vínculos.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -773,31 +725,6 @@ const Reconciliation = () => {
                 </>
               ) : (
                 'Confirmar'
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Remover Dialog */}
-      <AlertDialog open={showRemoverDialog} onOpenChange={setShowRemoverDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirmar Remoção</AlertDialogTitle>
-            <AlertDialogDescription>
-              Deseja remover {selectedStatementItems.length} registro(s) do extrato? Esta ação não pode ser desfeita.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={executeRemover} disabled={isProcessing} className="bg-red-600 hover:bg-red-700">
-              {isProcessing ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Processando...
-                </>
-              ) : (
-                'Remover'
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -1059,13 +986,23 @@ const Reconciliation = () => {
                           </div>
                           <div className="flex items-center gap-1 mt-1">
                             <Badge
-                              variant={entry._action === 'CL' ? 'default' : entry.status === 'pending' ? 'destructive' : 'secondary'}
+                              variant={
+                                entry._tag === 'conciliado' ? 'default' :
+                                entry._tag === 'incluir_lancamento' ? 'default' :
+                                entry._tag === 'remover' ? 'default' :
+                                'destructive'
+                              }
                               className={cn(
                                 "text-[9px] px-1 py-0",
-                                entry._action === 'CL' && "bg-blue-500 hover:bg-blue-600"
+                                entry._tag === 'conciliado' && "bg-blue-500 hover:bg-blue-600",
+                                entry._tag === 'incluir_lancamento' && "bg-orange-500 hover:bg-orange-600",
+                                entry._tag === 'remover' && "bg-red-400 hover:bg-red-500"
                               )}
                             >
-                              {entry._action === 'CL' ? 'Conciliado' : entry.status === 'pending' ? 'Pendente' : 'Conciliado'}
+                              {entry._tag === 'pending' ? 'Pendente' : 
+                               entry._tag === 'conciliado' ? 'Conciliado' :
+                               entry._tag === 'incluir_lancamento' ? 'Incluir Lançamento' :
+                               entry._tag === 'remover' ? 'Remover' : 'Pendente'}
                             </Badge>
                           </div>
                         </div>
