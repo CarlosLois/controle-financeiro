@@ -355,18 +355,22 @@ const Reconciliation = () => {
     // Filter out transactions already reconciled or with suggested match (unless showing all)
     if (!mostrarTodasTransacoes) {
       filtered = filtered.filter((t) => {
+        const isPositionedMatch = positionedStatementItem?._matchedTransactionId === t.id;
+
+        // Always allow the currently positioned matched transaction to be visible
+        // (otherwise the UI can't show the linked transaction after manual reconciliation).
+        if (isPositionedMatch) return true;
+
         // Exclude if transaction is not pending or already reconciled in DB
         if (t.status !== 'pending' || reconciledTransactionIds.has(t.id)) {
           return false;
         }
-        // Exclude if transaction has a suggested match with ANOTHER statement entry (not the current positioned one)
+
+        // Exclude if transaction has a suggested match with ANOTHER statement entry
         if (suggestedMatchTransactionIds.has(t.id)) {
-          // Allow if this is the match for the currently positioned statement
-          if (positionedStatementItem?._matchedTransactionId === t.id) {
-            return true;
-          }
           return false;
         }
+
         return true;
       });
     }
@@ -521,8 +525,9 @@ const Reconciliation = () => {
     setIsProcessing(true);
 
     try {
-      // Get first selected transaction ID for matching
-      const matchedTransactionId = selectedTransactionItems[0]?.id || undefined;
+      // IMPORTANT: use selectedTransactions directly.
+      // selectedTransactionItems depends on filteredTransactions and can be empty depending on current positioning/filters.
+      const matchedTransactionId = selectedTransactions[0];
 
       // Update all selected statement entries to reconciled
       for (const entry of selectedStatementItems) {
