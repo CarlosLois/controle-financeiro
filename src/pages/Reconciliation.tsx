@@ -35,7 +35,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { useBankAccounts } from "@/hooks/useBankAccounts";
 import { useAccountFilter } from "@/contexts/AccountFilterContext";
-import { useTransactions, useCreateTransaction } from "@/hooks/useTransactions";
+import { useTransactions, useCreateTransaction, useUpdateTransaction } from "@/hooks/useTransactions";
 import { 
   usePendingStatementEntries, 
   useUpdateStatementEntryStatus,
@@ -45,7 +45,7 @@ import {
 
 // Types for action matching
 type ActionType = 'CL' | 'IL' | null;
-type TagType = 'pending' | 'conciliado' | 'incluir_lancamento' | 'remover';
+type TagType = 'pending' | 'conciliado' | 'incluir_lancamento';
 
 interface StatementEntryWithAction extends BankStatementEntry {
   _action: ActionType;
@@ -62,6 +62,7 @@ const Reconciliation = () => {
   const updateStatusMutation = useUpdateStatementEntryStatus();
   const createTransactionMutation = useCreateTransaction();
   const deleteStatementMutation = useDeleteStatementEntry();
+  const { mutateAsync: updateTransaction } = useUpdateTransaction();
 
   // State for selected items
   const [selectedTransactions, setSelectedTransactions] = useState<string[]>([]);
@@ -79,8 +80,11 @@ const Reconciliation = () => {
   // Processed entries with actions
   const [processedEntries, setProcessedEntries] = useState<Map<string, { action: ActionType; matchedTransactionId: string | null; matchScore: number }>>(new Map());
   
-  // Manual tags for entries (IL = incluir_lancamento, remover)
-  const [entryTags, setEntryTags] = useState<Map<string, 'incluir_lancamento' | 'remover'>>(new Map());
+  // Manual tags for entries (IL = incluir_lancamento, conciliado)
+  const [entryTags, setEntryTags] = useState<Map<string, 'incluir_lancamento' | 'conciliado'>>(new Map());
+  
+  // Track which transactions are linked to which statement entries (for N:N relationships)
+  const [manualLinks, setManualLinks] = useState<Map<string, string[]>>(new Map()); // entryId -> transactionIds[]
 
   // Dialogs
   const [showConciliarDialog, setShowConciliarDialog] = useState(false);
@@ -387,8 +391,8 @@ const Reconciliation = () => {
 
     // If we have a positioned statement item
     if (positionedStatementItem) {
-      // If it has tag 'incluir_lancamento' or 'remover', don't show transactions
-      if (positionedStatementItem._tag === 'incluir_lancamento' || positionedStatementItem._tag === 'remover') {
+      // If it has tag 'incluir_lancamento', don't show transactions (will create new ones)
+      if (positionedStatementItem._tag === 'incluir_lancamento') {
         return [];
       }
       
@@ -464,11 +468,11 @@ const Reconciliation = () => {
     return selectedStatementItems.every((e) => e._tag === 'pending');
   }, [selectedStatementItems]);
 
-  // Check if all selected statement items have tag 'conciliado', 'incluir_lancamento', or 'remover' (not pending)
+  // Check if all selected statement items have tag 'conciliado' or 'incluir_lancamento' (not pending)
   const allSelectedTagNotPending = useMemo(() => {
     if (selectedStatementItems.length === 0) return false;
     return selectedStatementItems.every((e) => 
-      e._tag === 'conciliado' || e._tag === 'incluir_lancamento' || e._tag === 'remover'
+      e._tag === 'conciliado' || e._tag === 'incluir_lancamento'
     );
   }, [selectedStatementItems]);
 
@@ -629,20 +633,143 @@ const Reconciliation = () => {
     }
   };
 
-  // Handle Remover - adds 'remover' tag (does not delete immediately)
+  // Handle Remover - now adds 'conciliado' tag instead of 'remover'
   const handleRemover = () => {
     if (!canRemover) return;
-    // Add tag directly without dialog
+    // Add 'conciliado' tag directly without dialog (marks as reconciled without linking to transaction)
     setEntryTags(prev => {
       const next = new Map(prev);
-      selectedStatementItems.forEach(e => next.set(e.id, 'remover'));
+      selectedStatementItems.forEach(e => next.set(e.id, 'conciliado'));
       return next;
     });
     toast({
       title: "Tag adicionada",
-      description: `${selectedStatementItems.length} registro(s) marcado(s) para Remover`,
+      description: `${selectedStatementItems.length} registro(s) marcado(s) como Conciliado`,
     });
     setSelectedStatement([]);
+  };
+
+  // Handle Processar Conciliação - executes all pending tags
+  const handleProcessarConciliacao = async () => {
+    if (entryTags.size === 0 && processedEntries.size === 0) {
+      toast({
+        title: "Nada para processar",
+        description: "Não há registros marcados para processar",
+      });
+      return;
+    }
+
+    setIsProcessing(true);
+
+    try {
+      let conciliadoCount = 0;
+      let lancamentoCount = 0;
+      let transactionUpdates = 0;
+
+      // Group entries by their tags and process
+      const entriesToProcess = filteredStatementEntries.filter(e => 
+        entryTags.has(e.id) || (e._tag === 'conciliado' && e.status !== 'reconciled')
+      );
+
+      // Process entries with 'conciliado' tag - just mark as reconciled
+      const conciliadoEntries = entriesToProcess.filter(e => {
+        const tag = entryTags.get(e.id);
+        return tag === 'conciliado' || (!tag && e._tag === 'conciliado');
+      });
+
+      for (const entry of conciliadoEntries) {
+        // If already reconciled in DB, skip
+        if (entry.status === 'reconciled') continue;
+
+        await updateStatusMutation.mutateAsync({
+          entryId: entry.id,
+          status: 'reconciled',
+          matchedTransactionId: entry._matchedTransactionId || undefined,
+        });
+        conciliadoCount++;
+      }
+
+      // Process entries with 'incluir_lancamento' tag - create new transactions
+      const lancamentoEntries = entriesToProcess.filter(e => entryTags.get(e.id) === 'incluir_lancamento');
+
+      for (const entry of lancamentoEntries) {
+        // Create new transaction as 'completed' (efetivo)
+        const newTransaction = await createTransactionMutation.mutateAsync({
+          description: entry.description,
+          amount: entry.amount,
+          type: entry.type === 'C' ? 'income' : 'expense',
+          account_id: entry.account_id,
+          date: entry.date,
+          status: 'completed', // Efetivo
+        });
+
+        // Mark statement entry as reconciled with link to new transaction
+        await updateStatusMutation.mutateAsync({
+          entryId: entry.id,
+          status: 'reconciled',
+          matchedTransactionId: newTransaction.id,
+        });
+        lancamentoCount++;
+      }
+
+      // Update linked transactions (from conciliado entries that have matched transactions)
+      // Group statement entries by matched transaction ID to handle N:N
+      const transactionLinkedEntries = new Map<string, StatementEntryWithAction[]>();
+      
+      for (const entry of conciliadoEntries) {
+        const txId = entry._matchedTransactionId;
+        if (txId) {
+          const existing = transactionLinkedEntries.get(txId) || [];
+          existing.push(entry);
+          transactionLinkedEntries.set(txId, existing);
+        }
+      }
+
+      // Update each linked transaction: status -> completed, date -> max date, amount -> sum
+      for (const [transactionId, linkedEntries] of transactionLinkedEntries) {
+        const transaction = transactions.find(t => t.id === transactionId);
+        if (!transaction) continue;
+
+        // Get the maximum date from linked statement entries
+        const maxDate = linkedEntries.reduce((max, entry) => {
+          const entryDate = new Date(entry.date);
+          return entryDate > max ? entryDate : max;
+        }, new Date(linkedEntries[0].date));
+
+        // Calculate sum of linked entries (respecting type)
+        const totalAmount = linkedEntries.reduce((sum, entry) => sum + entry.amount, 0);
+
+        await updateTransaction({
+          id: transactionId,
+          status: 'completed', // Efetivo
+          date: format(maxDate, 'yyyy-MM-dd'),
+          amount: totalAmount,
+        });
+        transactionUpdates++;
+      }
+
+      // Clear tags after processing
+      setEntryTags(new Map());
+      setManualLinks(new Map());
+      setProcessedEntries(new Map());
+
+      // Refetch data
+      await Promise.all([refetchStatement(), refetchTransactions()]);
+
+      toast({
+        title: "Processamento concluído",
+        description: `${conciliadoCount} conciliado(s), ${lancamentoCount} lançamento(s) criado(s), ${transactionUpdates} transação(ões) atualizada(s)`,
+      });
+    } catch (error) {
+      console.error('Error processing reconciliation:', error);
+      toast({
+        title: "Erro no processamento",
+        description: "Não foi possível processar a conciliação",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const formatDate = (dateStr: string) => {
@@ -825,9 +952,9 @@ const Reconciliation = () => {
                   onClick={handleRemover}
                   disabled={!canRemover}
                   size="sm"
-                  className="bg-red-400 hover:bg-red-500 text-white"
+                  className="bg-slate-500 hover:bg-slate-600 text-white"
                 >
-                  Remover
+                  Ignorar
                 </Button>
               </div>
             </div>
@@ -1004,20 +1131,17 @@ const Reconciliation = () => {
                               variant={
                                 entry._tag === 'conciliado' ? 'default' :
                                 entry._tag === 'incluir_lancamento' ? 'default' :
-                                entry._tag === 'remover' ? 'default' :
                                 'destructive'
                               }
                               className={cn(
                                 "text-[9px] px-1 py-0",
                                 entry._tag === 'conciliado' && "bg-blue-500 hover:bg-blue-600",
-                                entry._tag === 'incluir_lancamento' && "bg-orange-500 hover:bg-orange-600",
-                                entry._tag === 'remover' && "bg-red-400 hover:bg-red-500"
+                                entry._tag === 'incluir_lancamento' && "bg-orange-500 hover:bg-orange-600"
                               )}
                             >
                               {entry._tag === 'pending' ? 'Pendente' : 
                                entry._tag === 'conciliado' ? 'Conciliado' :
-                               entry._tag === 'incluir_lancamento' ? 'Incluir Lançamento' :
-                               entry._tag === 'remover' ? 'Remover' : 'Pendente'}
+                               entry._tag === 'incluir_lancamento' ? 'Incluir Lançamento' : 'Pendente'}
                             </Badge>
                           </div>
                         </div>
@@ -1215,15 +1339,15 @@ const Reconciliation = () => {
             {/* Bottom action bar with Processar button */}
             <div className="flex justify-end pt-2">
               <Button
-                onClick={processReconciliation}
+                onClick={handleProcessarConciliacao}
                 size="sm"
                 className="gap-2 bg-primary hover:bg-primary/90"
-                disabled={isRefreshing}
+                disabled={isProcessing || (entryTags.size === 0 && processedEntries.size === 0)}
               >
-                {isRefreshing ? (
+                {isProcessing ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <RefreshCw className="h-4 w-4" />
+                  <CheckCircle2 className="h-4 w-4" />
                 )}
                 Processar Conciliação
               </Button>
