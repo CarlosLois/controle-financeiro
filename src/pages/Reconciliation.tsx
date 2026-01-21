@@ -699,10 +699,18 @@ const Reconciliation = () => {
     });
   }, [statementEntries, selectedAccountId, processedEntries, entryTags]);
 
-  // Check if there are any statement entries that are NOT 'pending' (for button highlight)
+  // Check if there are any statement entries that are NOT 'pending' TAG (for button highlight)
   // Uses ALL entries (not filtered) to ensure button is enabled regardless of current filter
+  // The button should be enabled if ANY entry has a tag different from 'pending' (even if status in DB is pending)
+  // Excludes entries already reconciled in DB (status === 'reconciled') as those are already processed
   const hasEntriesNotPending = useMemo(() => {
-    return allStatementEntriesWithAction.some((e) => e._tag !== 'pending' && e.status !== 'reconciled');
+    return allStatementEntriesWithAction.some((e) => {
+      // Skip entries already reconciled in DB
+      if (e.status === 'reconciled') return false;
+      // Check if entry has a tag different from 'pending' (conciliado, incluir_lancamento)
+      // or has a CL action suggesting reconciliation
+      return e._tag !== 'pending';
+    });
   }, [allStatementEntriesWithAction]);
 
   // Calculate summary for confirmation dialog - uses ALL entries, not filtered
