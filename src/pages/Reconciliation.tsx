@@ -495,11 +495,6 @@ const Reconciliation = () => {
   // - Remover: only statement entries with tag 'pending' (no transactions)
   const canRemover = selectedStatement.length > 0 && selectedTransactions.length === 0 && allSelectedTagPending;
 
-  // Check if there are any statement entries that are NOT 'pending' (for button highlight)
-  const hasEntriesNotPending = useMemo(() => {
-    return filteredStatementEntries.some((e) => e._tag !== 'pending');
-  }, [filteredStatementEntries]);
-
   // Auto-position on first statement item when filter changes
   useEffect(() => {
     if (filteredStatementEntries.length > 0 && !positionedStatementId) {
@@ -663,22 +658,71 @@ const Reconciliation = () => {
     setSelectedStatement([]);
   };
 
-  // Calculate summary for confirmation dialog
+  // Get ALL statement entries with action info (not filtered) for processing
+  const allStatementEntriesWithAction = useMemo((): StatementEntryWithAction[] => {
+    let entries = statementEntries;
+
+    // Filter by account only
+    if (selectedAccountId) {
+      entries = entries.filter((e) => e.account_id === selectedAccountId);
+    }
+
+    return entries.map(e => {
+      const processed = processedEntries.get(e.id);
+      const manualTag = entryTags.get(e.id);
+
+      const dbMatchedTransactionId = e.matched_transaction_id;
+      const hasDbMatch = e.status === 'reconciled' && !!dbMatchedTransactionId;
+
+      // Determine the tag to show
+      let tag: TagType = 'pending';
+      if (e.status === 'reconciled') {
+        tag = 'conciliado';
+      } else if (manualTag) {
+        tag = manualTag;
+      } else if (processed?.action === 'CL') {
+        tag = 'conciliado';
+      }
+
+      const action: ActionType = hasDbMatch ? 'CL' : (processed?.action || null);
+      const matchedTransactionId = hasDbMatch
+        ? dbMatchedTransactionId!
+        : (processed?.matchedTransactionId || null);
+
+      return {
+        ...e,
+        _action: action,
+        _matchedTransactionId: matchedTransactionId,
+        _matchScore: hasDbMatch ? 100 : (processed?.matchScore || 0),
+        _tag: tag,
+      };
+    });
+  }, [statementEntries, selectedAccountId, processedEntries, entryTags]);
+
+  // Check if there are any statement entries that are NOT 'pending' (for button highlight)
+  // Uses ALL entries (not filtered) to ensure button is enabled regardless of current filter
+  const hasEntriesNotPending = useMemo(() => {
+    return allStatementEntriesWithAction.some((e) => e._tag !== 'pending' && e.status !== 'reconciled');
+  }, [allStatementEntriesWithAction]);
+
+  // Calculate summary for confirmation dialog - uses ALL entries, not filtered
   const calculateProcessingSummary = useCallback((): ProcessingSummary => {
-    const entriesToProcess = filteredStatementEntries.filter(e => 
-      entryTags.has(e.id) || (e._tag === 'conciliado' && e.status !== 'reconciled')
+    // Get entries with tags that need processing (not just filtered ones)
+    const entriesToProcess = allStatementEntriesWithAction.filter(e => 
+      e._tag !== 'pending' && e.status !== 'reconciled'
     );
 
-    // Count conciliado entries (those not already reconciled in DB)
+    // Count conciliado entries (those with conciliado tag or CL action, not already reconciled in DB)
     const conciliadoEntries = entriesToProcess.filter(e => {
       const tag = entryTags.get(e.id);
-      return (tag === 'conciliado' || (!tag && e._tag === 'conciliado')) && e.status !== 'reconciled';
+      // Entry has conciliado tag directly, OR has CL action without manual tag
+      return tag === 'conciliado' || (!tag && e._action === 'CL');
     });
 
     // Count incluir_lancamento entries
     const lancamentoEntries = entriesToProcess.filter(e => entryTags.get(e.id) === 'incluir_lancamento');
 
-    // Count unique transactions to update
+    // Count unique transactions to update (from CL matches)
     const transactionIds = new Set<string>();
     for (const entry of conciliadoEntries) {
       if (entry._matchedTransactionId) {
@@ -691,7 +735,7 @@ const Reconciliation = () => {
       lancamentoCount: lancamentoEntries.length,
       transactionUpdateCount: transactionIds.size,
     };
-  }, [filteredStatementEntries, entryTags]);
+  }, [allStatementEntriesWithAction, entryTags]);
 
   // Handle Processar Conciliação - show confirmation dialog
   const handleProcessarConciliacao = () => {
@@ -719,15 +763,16 @@ const Reconciliation = () => {
       let lancamentoCount = 0;
       let transactionUpdates = 0;
 
-      // Group entries by their tags and process
-      const entriesToProcess = filteredStatementEntries.filter(e => 
-        entryTags.has(e.id) || (e._tag === 'conciliado' && e.status !== 'reconciled')
+      // Use ALL entries with tags (not filtered), to process everything marked
+      const entriesToProcess = allStatementEntriesWithAction.filter(e => 
+        e._tag !== 'pending' && e.status !== 'reconciled'
       );
 
-      // Process entries with 'conciliado' tag - just mark as reconciled
+      // Process entries with 'conciliado' tag or CL action - mark as reconciled
       const conciliadoEntries = entriesToProcess.filter(e => {
         const tag = entryTags.get(e.id);
-        return tag === 'conciliado' || (!tag && e._tag === 'conciliado');
+        // Entry has conciliado tag directly, OR has CL action without manual tag
+        return tag === 'conciliado' || (!tag && e._action === 'CL');
       });
 
       for (const entry of conciliadoEntries) {
