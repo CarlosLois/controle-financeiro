@@ -251,6 +251,11 @@ const Reconciliation = () => {
     });
   }, [statementEntries, transactions, selectedAccountId]);
 
+  // Re-run reconciliation analysis whenever data/account changes (e.g. after login)
+  useEffect(() => {
+    processReconciliation();
+  }, [processReconciliation]);
+
   // Filter statement entries with actions
   const filteredStatementEntries = useMemo(() => {
     let filtered = statementEntries;
@@ -943,7 +948,7 @@ const Reconciliation = () => {
   const isLoading = isLoadingTransactions || isLoadingStatement;
 
   return (
-    <MainLayout title="Conciliação" subtitle="Compare e concilie transações bancárias" onRefresh={processReconciliation}>
+    <MainLayout title="Conciliação" subtitle="Compare e concilie transações bancárias" onRefresh={handleRefresh}>
       {/* Conciliar Dialog */}
       <AlertDialog open={showConciliarDialog} onOpenChange={setShowConciliarDialog}>
         <AlertDialogContent>

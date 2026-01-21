@@ -33,7 +33,8 @@ export function useBankStatementEntries(accountId?: string) {
   const { user } = useAuth();
 
   return useQuery({
-    queryKey: ['bank_statement_entries', accountId],
+    // Include user id to avoid leaking cached data across logins
+    queryKey: ['bank_statement_entries', user?.id, accountId],
     queryFn: async () => {
       let query = supabase
         .from('bank_statement_entries')
@@ -57,7 +58,8 @@ export function usePendingStatementEntries(accountId?: string) {
   const { user } = useAuth();
 
   return useQuery({
-    queryKey: ['bank_statement_entries', 'all', accountId],
+    // Include user id to avoid leaking cached data across logins
+    queryKey: ['bank_statement_entries', 'all', user?.id, accountId],
     queryFn: async () => {
       let query = supabase
         .from('bank_statement_entries')
