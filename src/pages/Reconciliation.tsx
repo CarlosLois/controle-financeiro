@@ -486,6 +486,11 @@ const Reconciliation = () => {
   // - Remover: only statement entries with tag 'pending' (no transactions)
   const canRemover = selectedStatement.length > 0 && selectedTransactions.length === 0 && allSelectedTagPending;
 
+  // Check if there are any statement entries that are NOT 'pending' (for button highlight)
+  const hasEntriesNotPending = useMemo(() => {
+    return filteredStatementEntries.some((e) => e._tag !== 'pending');
+  }, [filteredStatementEntries]);
+
   // Auto-position on first statement item when filter changes
   useEffect(() => {
     if (filteredStatementEntries.length > 0 && !positionedStatementId) {
@@ -952,7 +957,7 @@ const Reconciliation = () => {
                   onClick={handleRemover}
                   disabled={!canRemover}
                   size="sm"
-                  className="bg-slate-500 hover:bg-slate-600 text-white"
+                  className="bg-orange-500 hover:bg-orange-600 text-white"
                 >
                   Ignorar
                 </Button>
@@ -1341,8 +1346,13 @@ const Reconciliation = () => {
               <Button
                 onClick={handleProcessarConciliacao}
                 size="sm"
-                className="gap-2 bg-primary hover:bg-primary/90"
-                disabled={isProcessing || (entryTags.size === 0 && processedEntries.size === 0)}
+                className={cn(
+                  "gap-2",
+                  hasEntriesNotPending 
+                    ? "bg-green-600 hover:bg-green-700 text-white" 
+                    : "bg-primary hover:bg-primary/90"
+                )}
+                disabled={isProcessing || !hasEntriesNotPending}
               >
                 {isProcessing ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
