@@ -90,6 +90,7 @@ const Reconciliation = () => {
   const [showConciliarDialog, setShowConciliarDialog] = useState(false);
   const [showDesconciliarDialog, setShowDesconciliarDialog] = useState(false);
   const [showProcessarDialog, setShowProcessarDialog] = useState(false);
+  const [showRefreshDialog, setShowRefreshDialog] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -110,10 +111,32 @@ const Reconciliation = () => {
     return bankAccounts.find((acc) => acc.id === selectedAccountId) || null;
   }, [selectedAccountId, bankAccounts]);
 
-  // Refresh all data
-  const handleRefresh = async () => {
+  // Check if there are manual reconciliations (tags or links) that would be lost on refresh
+  const hasManualReconciliations = useMemo(() => {
+    return entryTags.size > 0 || manualLinks.size > 0;
+  }, [entryTags, manualLinks]);
+
+  // Request refresh - shows confirmation if there are manual reconciliations
+  const handleRefresh = () => {
+    if (hasManualReconciliations) {
+      setShowRefreshDialog(true);
+    } else {
+      executeRefresh();
+    }
+  };
+
+  // Execute refresh - clears all manual data and refetches
+  const executeRefresh = async () => {
+    setShowRefreshDialog(false);
     setIsRefreshing(true);
     try {
+      // Clear all manual reconciliation data
+      setEntryTags(new Map());
+      setManualLinks(new Map());
+      setProcessedEntries(new Map());
+      setSelectedStatement([]);
+      setSelectedTransactions([]);
+      
       await Promise.all([
         refetchAccounts(),
         refetchTransactions(),
@@ -642,13 +665,19 @@ const Reconciliation = () => {
     }
   };
 
-  // Handle Remover - now adds 'conciliado' tag instead of 'remover'
+// Handle Remover - now adds 'conciliado' tag instead of 'remover'
   const handleRemover = () => {
     if (!canRemover) return;
     // Add 'conciliado' tag directly without dialog (marks as reconciled without linking to transaction)
     setEntryTags(prev => {
       const next = new Map(prev);
       selectedStatementItems.forEach(e => next.set(e.id, 'conciliado'));
+      return next;
+    });
+    // Also clear any manual links since we're ignoring without linking to transactions
+    setManualLinks(prev => {
+      const next = new Map(prev);
+      selectedStatementItems.forEach(e => next.delete(e.id));
       return next;
     });
     toast({
@@ -702,16 +731,22 @@ const Reconciliation = () => {
   // Check if there are any statement entries that are NOT 'pending' TAG (for button highlight)
   // Uses ALL entries (not filtered) to ensure button is enabled regardless of current filter
   // The button should be enabled if ANY entry has a tag different from 'pending' (even if status in DB is pending)
+  // Also considers manual links (conciliação manual) which mark entries as 'conciliado'
   // Excludes entries already reconciled in DB (status === 'reconciled') as those are already processed
   const hasEntriesNotPending = useMemo(() => {
     return allStatementEntriesWithAction.some((e) => {
       // Skip entries already reconciled in DB
       if (e.status === 'reconciled') return false;
-      // Check if entry has a tag different from 'pending' (conciliado, incluir_lancamento)
-      // or has a CL action suggesting reconciliation
-      return e._tag !== 'pending';
+      // Check if entry has a manual tag (conciliado, incluir_lancamento)
+      const manualTag = entryTags.get(e.id);
+      if (manualTag) return true;
+      // Check if entry has a manual link (conciliação manual)
+      const hasManualLink = manualLinks.has(e.id) && (manualLinks.get(e.id)?.length || 0) > 0;
+      if (hasManualLink) return true;
+      // Check if entry has a CL action suggesting reconciliation (automatic)
+      return e._action === 'CL';
     });
-  }, [allStatementEntriesWithAction]);
+  }, [allStatementEntriesWithAction, entryTags, manualLinks]);
 
   // Calculate summary for confirmation dialog - uses ALL entries, not filtered
   const calculateProcessingSummary = useCallback((): ProcessingSummary => {
@@ -1036,6 +1071,30 @@ const Reconciliation = () => {
               ) : (
                 'Confirmar'
               )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Refresh Confirmation Dialog */}
+      <AlertDialog open={showRefreshDialog} onOpenChange={setShowRefreshDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Confirmar Atualização
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Existem conciliações manuais que ainda não foram processadas. 
+              Ao atualizar, todas as marcações e vínculos manuais serão perdidos.
+              <br /><br />
+              Deseja continuar?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={executeRefresh} className="bg-amber-600 hover:bg-amber-700">
+              Atualizar Mesmo Assim
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
