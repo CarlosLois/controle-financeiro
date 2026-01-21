@@ -89,8 +89,17 @@ const Reconciliation = () => {
   // Dialogs
   const [showConciliarDialog, setShowConciliarDialog] = useState(false);
   const [showDesconciliarDialog, setShowDesconciliarDialog] = useState(false);
+  const [showProcessarDialog, setShowProcessarDialog] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Summary for confirmation dialog
+  interface ProcessingSummary {
+    conciliadoCount: number;
+    lancamentoCount: number;
+    transactionUpdateCount: number;
+  }
+  const [processingSummary, setProcessingSummary] = useState<ProcessingSummary | null>(null);
 
   // Refs for auto-scroll
   const statementItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -654,9 +663,41 @@ const Reconciliation = () => {
     setSelectedStatement([]);
   };
 
-  // Handle Processar Conciliação - executes all pending tags
-  const handleProcessarConciliacao = async () => {
-    if (entryTags.size === 0 && processedEntries.size === 0) {
+  // Calculate summary for confirmation dialog
+  const calculateProcessingSummary = useCallback((): ProcessingSummary => {
+    const entriesToProcess = filteredStatementEntries.filter(e => 
+      entryTags.has(e.id) || (e._tag === 'conciliado' && e.status !== 'reconciled')
+    );
+
+    // Count conciliado entries (those not already reconciled in DB)
+    const conciliadoEntries = entriesToProcess.filter(e => {
+      const tag = entryTags.get(e.id);
+      return (tag === 'conciliado' || (!tag && e._tag === 'conciliado')) && e.status !== 'reconciled';
+    });
+
+    // Count incluir_lancamento entries
+    const lancamentoEntries = entriesToProcess.filter(e => entryTags.get(e.id) === 'incluir_lancamento');
+
+    // Count unique transactions to update
+    const transactionIds = new Set<string>();
+    for (const entry of conciliadoEntries) {
+      if (entry._matchedTransactionId) {
+        transactionIds.add(entry._matchedTransactionId);
+      }
+    }
+
+    return {
+      conciliadoCount: conciliadoEntries.length,
+      lancamentoCount: lancamentoEntries.length,
+      transactionUpdateCount: transactionIds.size,
+    };
+  }, [filteredStatementEntries, entryTags]);
+
+  // Handle Processar Conciliação - show confirmation dialog
+  const handleProcessarConciliacao = () => {
+    const summary = calculateProcessingSummary();
+    
+    if (summary.conciliadoCount === 0 && summary.lancamentoCount === 0 && summary.transactionUpdateCount === 0) {
       toast({
         title: "Nada para processar",
         description: "Não há registros marcados para processar",
@@ -664,6 +705,13 @@ const Reconciliation = () => {
       return;
     }
 
+    setProcessingSummary(summary);
+    setShowProcessarDialog(true);
+  };
+
+  // Execute Processar Conciliação - called after confirmation
+  const executeProcessarConciliacao = async () => {
+    setShowProcessarDialog(false);
     setIsProcessing(true);
 
     try {
@@ -867,6 +915,66 @@ const Reconciliation = () => {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={executeDesconciliar} disabled={isProcessing}>
+              {isProcessing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Processando...
+                </>
+              ) : (
+                'Confirmar'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Processar Conciliação Confirmation Dialog */}
+      <AlertDialog open={showProcessarDialog} onOpenChange={setShowProcessarDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar Processamento</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-4">
+                <p>Deseja processar a conciliação? As seguintes ações serão executadas:</p>
+                {processingSummary && (
+                  <div className="bg-muted p-4 rounded-lg space-y-2">
+                    {processingSummary.conciliadoCount > 0 && (
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-blue-500 hover:bg-blue-600">Conciliado</Badge>
+                        <span className="text-sm">
+                          {processingSummary.conciliadoCount} registro(s) do extrato serão marcados como conciliados
+                        </span>
+                      </div>
+                    )}
+                    {processingSummary.lancamentoCount > 0 && (
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-orange-500 hover:bg-orange-600">Incluir Lançamento</Badge>
+                        <span className="text-sm">
+                          {processingSummary.lancamentoCount} nova(s) transação(ões) serão criadas
+                        </span>
+                      </div>
+                    )}
+                    {processingSummary.transactionUpdateCount > 0 && (
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-green-500 hover:bg-green-600">Transações</Badge>
+                        <span className="text-sm">
+                          {processingSummary.transactionUpdateCount} transação(ões) serão atualizadas de Previsão para Efetivo
+                        </span>
+                      </div>
+                    )}
+                    {processingSummary.conciliadoCount === 0 && 
+                     processingSummary.lancamentoCount === 0 && 
+                     processingSummary.transactionUpdateCount === 0 && (
+                      <p className="text-sm text-muted-foreground">Nenhuma ação pendente.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={executeProcessarConciliacao} disabled={isProcessing}>
               {isProcessing ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
