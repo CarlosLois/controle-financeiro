@@ -36,6 +36,7 @@ import { toast } from "@/hooks/use-toast";
 import { useBankAccounts } from "@/hooks/useBankAccounts";
 import { useAccountFilter } from "@/contexts/AccountFilterContext";
 import { useTransactions, useCreateTransaction, useUpdateTransaction } from "@/hooks/useTransactions";
+import { supabase } from "@/integrations/supabase/client";
 import { 
   usePendingStatementEntries, 
   useUpdateStatementEntryStatus,
@@ -131,18 +132,35 @@ const Reconciliation = () => {
     }
   };
 
-  // Execute refresh - clears all manual data and refetches
+  // Execute refresh - clears all manual data, clears DB links, and refetches
   const executeRefresh = async () => {
     setShowRefreshDialog(false);
     setIsRefreshing(true);
     try {
-      // Clear all manual reconciliation data
+      // Clear all local reconciliation state
       setEntryTags(new Map());
       setManualLinks(new Map());
       setProcessedEntries(new Map());
       setManuallyReconciledEntries(new Set());
       setSelectedStatement([]);
       setSelectedTransactions([]);
+      
+      // Clear matched_transaction_id from pending entries in DB (not reconciled ones)
+      const pendingEntriesWithLinks = statementEntries.filter(
+        e => e.status === 'pending' && e.account_id === selectedAccountId && e.matched_transaction_id
+      );
+      
+      for (const entry of pendingEntriesWithLinks) {
+        try {
+          // Clear the link by setting matched_transaction_id to null
+          await supabase
+            .from('bank_statement_entries')
+            .update({ matched_transaction_id: null })
+            .eq('id', entry.id);
+        } catch (error) {
+          console.error('Failed to clear link for entry:', entry.id, error);
+        }
+      }
       
       await Promise.all([
         refetchAccounts(),
@@ -151,7 +169,7 @@ const Reconciliation = () => {
       ]);
       toast({
         title: "Dados atualizados",
-        description: "A conciliação foi atualizada com sucesso",
+        description: "A conciliação foi reiniciada com sucesso",
       });
     } catch (error) {
       toast({
@@ -164,15 +182,28 @@ const Reconciliation = () => {
     }
   };
 
-  // Process reconciliation - find matches
-  const processReconciliation = useCallback(() => {
+  // Process reconciliation - find matches and save to DB immediately
+  const processReconciliation = useCallback(async () => {
     if (!selectedAccountId) return;
 
-    const pendingStatements = statementEntries.filter(e => e.status === 'pending' && e.account_id === selectedAccountId);
+    // Only process entries that don't already have a match in DB
+    const pendingStatements = statementEntries.filter(e => 
+      e.status === 'pending' && 
+      e.account_id === selectedAccountId && 
+      !e.matched_transaction_id
+    );
     const pendingTransactions = transactions.filter(t => t.status === 'pending' && t.account_id === selectedAccountId);
 
     const newProcessedEntries = new Map<string, { action: ActionType; matchedTransactionId: string | null; matchScore: number }>();
     const usedTransactionIds = new Set<string>();
+    const autoMatchesToSave: { entryId: string; transactionId: string }[] = [];
+
+    // Also track transactions already matched in DB
+    const alreadyMatchedTxIds = new Set(
+      statementEntries
+        .filter(e => e.matched_transaction_id)
+        .map(e => e.matched_transaction_id!)
+    );
 
     for (const entry of pendingStatements) {
       const entryType = entry.type; // 'C' or 'D'
@@ -184,6 +215,7 @@ const Reconciliation = () => {
 
       for (const tx of pendingTransactions) {
         if (usedTransactionIds.has(tx.id)) continue;
+        if (alreadyMatchedTxIds.has(tx.id)) continue;
 
         const txType = tx.type === 'income' ? 'C' : 'D';
         
@@ -238,6 +270,7 @@ const Reconciliation = () => {
           matchScore: bestMatch.score,
         });
         usedTransactionIds.add(bestMatch.transactionId);
+        autoMatchesToSave.push({ entryId: entry.id, transactionId: bestMatch.transactionId });
       } else {
         newProcessedEntries.set(entry.id, {
           action: 'IL',
@@ -249,14 +282,34 @@ const Reconciliation = () => {
 
     setProcessedEntries(newProcessedEntries);
 
+    // Save auto matches to DB immediately (link only, not reconciled yet)
+    let savedCount = 0;
+    for (const match of autoMatchesToSave) {
+      try {
+        await updateStatusMutation.mutateAsync({
+          entryId: match.entryId,
+          status: 'pending', // Keep as pending, but save the link
+          matchedTransactionId: match.transactionId,
+        });
+        savedCount++;
+      } catch (error) {
+        console.error('Failed to save auto match:', error);
+      }
+    }
+
     const clCount = Array.from(newProcessedEntries.values()).filter(v => v.action === 'CL').length;
     const ilCount = Array.from(newProcessedEntries.values()).filter(v => v.action === 'IL').length;
 
     toast({
       title: "Processamento concluído",
-      description: `${clCount} conciliações sugeridas, ${ilCount} lançamentos a incluir`,
+      description: `${clCount} conciliações encontradas${savedCount > 0 ? ` (${savedCount} vínculos salvos)` : ''}, ${ilCount} lançamentos a incluir`,
     });
-  }, [statementEntries, transactions, selectedAccountId]);
+
+    // Refetch to get updated data
+    if (savedCount > 0) {
+      await refetchStatement();
+    }
+  }, [statementEntries, transactions, selectedAccountId, updateStatusMutation, refetchStatement]);
 
   // Re-run reconciliation analysis whenever data/account changes (e.g. after login)
   useEffect(() => {
@@ -277,35 +330,37 @@ const Reconciliation = () => {
       filtered = filtered.filter((e) => {
         const processed = processedEntries.get(e.id);
         const hasSuggestedMatch = processed?.action === 'CL';
-        const hasDbMatch = e.status === 'reconciled' && !!e.matched_transaction_id;
+        const hasDbMatch = !!e.matched_transaction_id;
         return hasSuggestedMatch || hasDbMatch;
       });
     } else if (filtroLocalizacao === 'nao_localizado') {
       filtered = filtered.filter((e) => {
         const processed = processedEntries.get(e.id);
         const hasSuggestedMatch = processed?.action === 'CL';
-        const hasDbMatch = e.status === 'reconciled' && !!e.matched_transaction_id;
+        const hasDbMatch = !!e.matched_transaction_id;
         return !hasSuggestedMatch && !hasDbMatch;
       });
     }
 
-    // Filter by pendency status (based on TAG)
+    // Filter by pendency status (based on TAG and DB match)
     if (filtroPendencia === 'pending') {
-      // Pendente: only entries with tag 'pending'
+      // Pendente: entries without any match or tag
       filtered = filtered.filter((e) => {
         const processed = processedEntries.get(e.id);
         const manualTag = entryTags.get(e.id);
         const hasSuggestedMatch = processed?.action === 'CL';
-        // Entry is pending only if status is pending, no manual tag, and no suggested match
-        return e.status === 'pending' && !manualTag && !hasSuggestedMatch;
+        const hasDbMatch = !!e.matched_transaction_id;
+        // Entry is pending only if status is pending, no manual tag, no DB match, and no suggested match
+        return e.status === 'pending' && !manualTag && !hasSuggestedMatch && !hasDbMatch;
       });
     } else if (filtroPendencia === 'reconciled') {
-      // Conciliado: entries with any non-pending tag (conciliado, incluir_lancamento, remover)
+      // Conciliado: entries with any match or tag
       filtered = filtered.filter((e) => {
         const processed = processedEntries.get(e.id);
         const manualTag = entryTags.get(e.id);
         const hasSuggestedMatch = processed?.action === 'CL';
-        return e.status === 'reconciled' || manualTag || hasSuggestedMatch;
+        const hasDbMatch = !!e.matched_transaction_id;
+        return e.status === 'reconciled' || manualTag || hasSuggestedMatch || hasDbMatch;
       });
     }
 
@@ -334,7 +389,8 @@ const Reconciliation = () => {
       const isManuallyReconciled = manuallyReconciledEntries.has(e.id);
 
       const dbMatchedTransactionId = e.matched_transaction_id;
-      const hasDbMatch = e.status === 'reconciled' && !!dbMatchedTransactionId;
+      // Consider entry has a match if matched_transaction_id exists in DB (regardless of status)
+      const hasDbMatch = !!dbMatchedTransactionId;
 
       // Determine the tag to show
       let tag: TagType = 'pending';
@@ -342,21 +398,20 @@ const Reconciliation = () => {
         tag = 'conciliado';
       } else if (manualTag) {
         tag = manualTag;
-      } else if (processed?.action === 'CL') {
+      } else if (hasDbMatch || processed?.action === 'CL') {
+        // Entry has a saved link OR has suggested match
         tag = 'conciliado';
       }
 
       const action: ActionType = hasDbMatch ? 'CL' : (processed?.action || null);
-      const matchedTransactionId = hasDbMatch
-        ? dbMatchedTransactionId!
-        : (processed?.matchedTransactionId || null);
+      const matchedTransactionId = dbMatchedTransactionId || processed?.matchedTransactionId || null;
 
       // Determine reconciliation type: manual (user clicked Conciliar) vs auto (analysis matched)
       let reconciliationType: ReconciliationType | null = null;
       if (tag !== 'pending') {
         if (isManuallyReconciled || manualTag) {
           reconciliationType = 'manual';
-        } else if (processed?.action === 'CL') {
+        } else if (hasDbMatch || processed?.action === 'CL') {
           reconciliationType = 'auto';
         }
       }
@@ -383,11 +438,12 @@ const Reconciliation = () => {
     return filteredStatementEntries.find((e) => e.id === positionedStatementId) || null;
   }, [positionedStatementId, filteredStatementEntries]);
 
-  // Get IDs of transactions that are already reconciled with statement entries (from database)
-  const reconciledTransactionIds = useMemo(() => {
+  // Get IDs of transactions that are already linked to statement entries (from database)
+  // Includes both reconciled and pending entries with a matched_transaction_id
+  const linkedTransactionIds = useMemo(() => {
     return new Set(
       statementEntries
-        .filter(e => e.status === 'reconciled' && e.matched_transaction_id)
+        .filter(e => e.matched_transaction_id)
         .map(e => e.matched_transaction_id!)
     );
   }, [statementEntries]);
@@ -421,8 +477,8 @@ const Reconciliation = () => {
         // (otherwise the UI can't show the linked transaction after manual reconciliation).
         if (isPositionedMatch) return true;
 
-        // Exclude if transaction is not pending or already reconciled in DB
-        if (t.status !== 'pending' || reconciledTransactionIds.has(t.id)) {
+        // Exclude if transaction is not pending or already linked in DB
+        if (t.status !== 'pending' || linkedTransactionIds.has(t.id)) {
           return false;
         }
 
@@ -492,7 +548,7 @@ const Reconciliation = () => {
     return [...filtered].sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     );
-  }, [transactions, selectedAccountId, searchTransacoes, positionedStatementItem, mostrarTodasTransacoes, reconciledTransactionIds, suggestedMatchTransactionIds]);
+  }, [transactions, selectedAccountId, searchTransacoes, positionedStatementItem, mostrarTodasTransacoes, linkedTransactionIds, suggestedMatchTransactionIds]);
 
   // Calculate totals for selected items
   const statementTotal = useMemo(() => {
@@ -577,45 +633,65 @@ const Reconciliation = () => {
     );
   };
 
-  // Handle reconciliation - marks entries as manually reconciled (does not save to DB immediately)
-  const handleConciliar = () => {
+  // Handle reconciliation - saves link to DB immediately
+  const handleConciliar = async () => {
     if (!canConciliar) return;
     
-    // Mark entries as manually reconciled (local tag)
-    // Store the link between statement entries and selected transactions
     const txIds = [...selectedTransactions];
+    const entriesToConciliate = [...selectedStatementItems];
     
+    // Save links to DB immediately for each entry
+    let savedCount = 0;
+    for (const entry of entriesToConciliate) {
+      try {
+        // For N:N, we use the first transaction for now (can be extended)
+        const txId = txIds[0];
+        await updateStatusMutation.mutateAsync({
+          entryId: entry.id,
+          status: 'pending', // Keep as pending, but save the link
+          matchedTransactionId: txId,
+        });
+        savedCount++;
+      } catch (error) {
+        console.error('Failed to save manual link:', error);
+      }
+    }
+    
+    // Mark entries as manually reconciled (local tag for visual feedback)
     setEntryTags(prev => {
       const next = new Map(prev);
-      selectedStatementItems.forEach(e => next.set(e.id, 'conciliado'));
+      entriesToConciliate.forEach(e => next.set(e.id, 'conciliado'));
       return next;
     });
     
     // Mark these entries as manually reconciled (for refresh warning)
     setManuallyReconciledEntries(prev => {
       const next = new Set(prev);
-      selectedStatementItems.forEach(e => next.add(e.id));
+      entriesToConciliate.forEach(e => next.add(e.id));
       return next;
     });
     
     // Store manual links for N:N reconciliation
     setManualLinks(prev => {
       const next = new Map(prev);
-      selectedStatementItems.forEach(e => next.set(e.id, txIds));
+      entriesToConciliate.forEach(e => next.set(e.id, txIds));
       return next;
     });
     
     // Remove from auto-processed entries since we're manually overriding
     setProcessedEntries(prev => {
       const next = new Map(prev);
-      selectedStatementItems.forEach(e => next.delete(e.id));
+      entriesToConciliate.forEach(e => next.delete(e.id));
       return next;
     });
     
     toast({
-      title: "Conciliação marcada",
-      description: `${selectedStatementItems.length} registro(s) marcado(s) para conciliação`,
+      title: "Conciliação salva",
+      description: `${savedCount} vínculo(s) salvo(s) no banco de dados`,
     });
+    
+    // Refetch to update data
+    await refetchStatement();
     
     setSelectedStatement([]);
     setSelectedTransactions([]);
@@ -737,7 +813,7 @@ const Reconciliation = () => {
       const isManuallyReconciled = manuallyReconciledEntries.has(e.id);
 
       const dbMatchedTransactionId = e.matched_transaction_id;
-      const hasDbMatch = e.status === 'reconciled' && !!dbMatchedTransactionId;
+      const hasDbMatch = !!dbMatchedTransactionId;
 
       // Determine the tag to show
       let tag: TagType = 'pending';
@@ -745,21 +821,19 @@ const Reconciliation = () => {
         tag = 'conciliado';
       } else if (manualTag) {
         tag = manualTag;
-      } else if (processed?.action === 'CL') {
+      } else if (hasDbMatch || processed?.action === 'CL') {
         tag = 'conciliado';
       }
 
       const action: ActionType = hasDbMatch ? 'CL' : (processed?.action || null);
-      const matchedTransactionId = hasDbMatch
-        ? dbMatchedTransactionId!
-        : (processed?.matchedTransactionId || null);
+      const matchedTransactionId = dbMatchedTransactionId || processed?.matchedTransactionId || null;
 
       // Determine reconciliation type
       let reconciliationType: ReconciliationType | null = null;
       if (tag !== 'pending') {
         if (isManuallyReconciled || manualTag) {
           reconciliationType = 'manual';
-        } else if (processed?.action === 'CL') {
+        } else if (hasDbMatch || processed?.action === 'CL') {
           reconciliationType = 'auto';
         }
       }
@@ -790,6 +864,8 @@ const Reconciliation = () => {
       // Check if entry has a manual link (conciliação manual)
       const hasManualLink = manualLinks.has(e.id) && (manualLinks.get(e.id)?.length || 0) > 0;
       if (hasManualLink) return true;
+      // Check if entry has a saved link in DB (matched_transaction_id)
+      if (e.matched_transaction_id) return true;
       // Check if entry has a CL action suggesting reconciliation (automatic)
       return e._action === 'CL';
     });
@@ -802,11 +878,11 @@ const Reconciliation = () => {
       e._tag !== 'pending' && e.status !== 'reconciled'
     );
 
-    // Count conciliado entries (those with conciliado tag or CL action, not already reconciled in DB)
+    // Count conciliado entries (those with conciliado tag, CL action, or DB match, not already reconciled in DB)
     const conciliadoEntries = entriesToProcess.filter(e => {
       const tag = entryTags.get(e.id);
-      // Entry has conciliado tag directly, OR has CL action without manual tag
-      return tag === 'conciliado' || (!tag && e._action === 'CL');
+      // Entry has conciliado tag directly, OR has CL action without manual tag, OR has DB match
+      return tag === 'conciliado' || (!tag && (e._action === 'CL' || e.matched_transaction_id));
     });
 
     // Count incluir_lancamento entries
@@ -864,11 +940,11 @@ const Reconciliation = () => {
         e._tag !== 'pending' && e.status !== 'reconciled'
       );
 
-      // Process entries with 'conciliado' tag or CL action - mark as reconciled
+      // Process entries with 'conciliado' tag, CL action, or DB match - mark as reconciled
       const conciliadoEntries = entriesToProcess.filter(e => {
         const tag = entryTags.get(e.id);
-        // Entry has conciliado tag directly, OR has CL action without manual tag
-        return tag === 'conciliado' || (!tag && e._action === 'CL');
+        // Entry has conciliado tag directly, OR has CL action without manual tag, OR has DB match
+        return tag === 'conciliado' || (!tag && (e._action === 'CL' || e.matched_transaction_id));
       });
 
       for (const entry of conciliadoEntries) {
