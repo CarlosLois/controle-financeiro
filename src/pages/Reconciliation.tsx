@@ -46,12 +46,14 @@ import {
 // Types for action matching
 type ActionType = 'CL' | 'IL' | null;
 type TagType = 'pending' | 'conciliado' | 'incluir_lancamento';
+type ReconciliationType = 'auto' | 'manual'; // auto = análise automática, manual = botão conciliar
 
 interface StatementEntryWithAction extends BankStatementEntry {
   _action: ActionType;
   _matchedTransactionId: string | null;
   _matchScore: number;
   _tag: TagType;
+  _reconciliationType: ReconciliationType | null; // Tipo de conciliação (auto ou manual)
 }
 
 const Reconciliation = () => {
@@ -86,8 +88,11 @@ const Reconciliation = () => {
   // Track which transactions are linked to which statement entries (for N:N relationships)
   const [manualLinks, setManualLinks] = useState<Map<string, string[]>>(new Map()); // entryId -> transactionIds[]
 
+  // Track which entries were reconciled manually (via 'Conciliar' button) vs automatically (via analysis)
+  // This is used to show warning on refresh only for manual reconciliations
+  const [manuallyReconciledEntries, setManuallyReconciledEntries] = useState<Set<string>>(new Set());
+
   // Dialogs
-  const [showConciliarDialog, setShowConciliarDialog] = useState(false);
   const [showDesconciliarDialog, setShowDesconciliarDialog] = useState(false);
   const [showProcessarDialog, setShowProcessarDialog] = useState(false);
   const [showRefreshDialog, setShowRefreshDialog] = useState(false);
@@ -111,10 +116,11 @@ const Reconciliation = () => {
     return bankAccounts.find((acc) => acc.id === selectedAccountId) || null;
   }, [selectedAccountId, bankAccounts]);
 
-  // Check if there are manual reconciliations (tags or links) that would be lost on refresh
+  // Check if there are manual reconciliations (tags, links, or manually reconciled entries) that would be lost on refresh
+  // Only considers truly MANUAL actions, not automatic CL suggestions
   const hasManualReconciliations = useMemo(() => {
-    return entryTags.size > 0 || manualLinks.size > 0;
-  }, [entryTags, manualLinks]);
+    return entryTags.size > 0 || manualLinks.size > 0 || manuallyReconciledEntries.size > 0;
+  }, [entryTags, manualLinks, manuallyReconciledEntries]);
 
   // Request refresh - shows confirmation if there are manual reconciliations
   const handleRefresh = () => {
@@ -134,6 +140,7 @@ const Reconciliation = () => {
       setEntryTags(new Map());
       setManualLinks(new Map());
       setProcessedEntries(new Map());
+      setManuallyReconciledEntries(new Set());
       setSelectedStatement([]);
       setSelectedTransactions([]);
       
@@ -324,6 +331,7 @@ const Reconciliation = () => {
     const entriesWithAction: StatementEntryWithAction[] = filtered.map(e => {
       const processed = processedEntries.get(e.id);
       const manualTag = entryTags.get(e.id);
+      const isManuallyReconciled = manuallyReconciledEntries.has(e.id);
 
       const dbMatchedTransactionId = e.matched_transaction_id;
       const hasDbMatch = e.status === 'reconciled' && !!dbMatchedTransactionId;
@@ -343,12 +351,23 @@ const Reconciliation = () => {
         ? dbMatchedTransactionId!
         : (processed?.matchedTransactionId || null);
 
+      // Determine reconciliation type: manual (user clicked Conciliar) vs auto (analysis matched)
+      let reconciliationType: ReconciliationType | null = null;
+      if (tag !== 'pending') {
+        if (isManuallyReconciled || manualTag) {
+          reconciliationType = 'manual';
+        } else if (processed?.action === 'CL') {
+          reconciliationType = 'auto';
+        }
+      }
+
       return {
         ...e,
         _action: action,
         _matchedTransactionId: matchedTransactionId,
         _matchScore: hasDbMatch ? 100 : (processed?.matchScore || 0),
         _tag: tag,
+        _reconciliationType: reconciliationType,
       };
     });
 
@@ -356,7 +375,7 @@ const Reconciliation = () => {
     return entriesWithAction.sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
-  }, [statementEntries, selectedAccountId, filtroLocalizacao, filtroTipo, filtroPendencia, searchExtrato, processedEntries, entryTags]);
+  }, [statementEntries, selectedAccountId, filtroLocalizacao, filtroTipo, filtroPendencia, searchExtrato, processedEntries, entryTags, manuallyReconciledEntries]);
 
   // Get positioned statement item
   const positionedStatementItem = useMemo(() => {
@@ -537,6 +556,8 @@ const Reconciliation = () => {
     setPositionedStatementId(null);
     setProcessedEntries(new Map());
     setEntryTags(new Map());
+    setManualLinks(new Map());
+    setManuallyReconciledEntries(new Set());
   }, [selectedAccountId]);
 
   // Toggle selection
@@ -556,52 +577,48 @@ const Reconciliation = () => {
     );
   };
 
-  // Handle reconciliation
+  // Handle reconciliation - marks entries as manually reconciled (does not save to DB immediately)
   const handleConciliar = () => {
     if (!canConciliar) return;
-    setShowConciliarDialog(true);
-  };
-
-  const executeConciliar = async () => {
-    setIsProcessing(true);
-
-    try {
-      // IMPORTANT: use selectedTransactions directly.
-      // selectedTransactionItems depends on filteredTransactions and can be empty depending on current positioning/filters.
-      const matchedTransactionId = selectedTransactions[0];
-
-      // Update all selected statement entries to reconciled
-      for (const entry of selectedStatementItems) {
-        await updateStatusMutation.mutateAsync({
-          entryId: entry.id,
-          status: 'reconciled',
-          matchedTransactionId,
-        });
-      }
-
-      toast({
-        title: "Conciliação realizada",
-        description: `${selectedStatementItems.length} registro(s) conciliado(s) com sucesso`,
-      });
-
-      // Clear selections and processed entries for these items
-      setSelectedStatement([]);
-      setSelectedTransactions([]);
-      setProcessedEntries(prev => {
-        const next = new Map(prev);
-        selectedStatementItems.forEach(e => next.delete(e.id));
-        return next;
-      });
-    } catch (error) {
-      toast({
-        title: "Erro na conciliação",
-        description: "Não foi possível conciliar os registros",
-        variant: "destructive",
-      });
-    } finally {
-      setIsProcessing(false);
-      setShowConciliarDialog(false);
-    }
+    
+    // Mark entries as manually reconciled (local tag)
+    // Store the link between statement entries and selected transactions
+    const txIds = [...selectedTransactions];
+    
+    setEntryTags(prev => {
+      const next = new Map(prev);
+      selectedStatementItems.forEach(e => next.set(e.id, 'conciliado'));
+      return next;
+    });
+    
+    // Mark these entries as manually reconciled (for refresh warning)
+    setManuallyReconciledEntries(prev => {
+      const next = new Set(prev);
+      selectedStatementItems.forEach(e => next.add(e.id));
+      return next;
+    });
+    
+    // Store manual links for N:N reconciliation
+    setManualLinks(prev => {
+      const next = new Map(prev);
+      selectedStatementItems.forEach(e => next.set(e.id, txIds));
+      return next;
+    });
+    
+    // Remove from auto-processed entries since we're manually overriding
+    setProcessedEntries(prev => {
+      const next = new Map(prev);
+      selectedStatementItems.forEach(e => next.delete(e.id));
+      return next;
+    });
+    
+    toast({
+      title: "Conciliação marcada",
+      description: `${selectedStatementItems.length} registro(s) marcado(s) para conciliação`,
+    });
+    
+    setSelectedStatement([]);
+    setSelectedTransactions([]);
   };
 
   // Handle Lançar Tesouraria - adds 'incluir_lancamento' tag (does not create transaction immediately)
@@ -648,6 +665,19 @@ const Reconciliation = () => {
       
       setProcessedEntries(prev => {
         const next = new Map(prev);
+        selectedStatementItems.forEach(e => next.delete(e.id));
+        return next;
+      });
+      
+      // Remove manual links and manually reconciled flag
+      setManualLinks(prev => {
+        const next = new Map(prev);
+        selectedStatementItems.forEach(e => next.delete(e.id));
+        return next;
+      });
+      
+      setManuallyReconciledEntries(prev => {
+        const next = new Set(prev);
         selectedStatementItems.forEach(e => next.delete(e.id));
         return next;
       });
@@ -704,6 +734,7 @@ const Reconciliation = () => {
     return entries.map(e => {
       const processed = processedEntries.get(e.id);
       const manualTag = entryTags.get(e.id);
+      const isManuallyReconciled = manuallyReconciledEntries.has(e.id);
 
       const dbMatchedTransactionId = e.matched_transaction_id;
       const hasDbMatch = e.status === 'reconciled' && !!dbMatchedTransactionId;
@@ -723,15 +754,26 @@ const Reconciliation = () => {
         ? dbMatchedTransactionId!
         : (processed?.matchedTransactionId || null);
 
+      // Determine reconciliation type
+      let reconciliationType: ReconciliationType | null = null;
+      if (tag !== 'pending') {
+        if (isManuallyReconciled || manualTag) {
+          reconciliationType = 'manual';
+        } else if (processed?.action === 'CL') {
+          reconciliationType = 'auto';
+        }
+      }
+
       return {
         ...e,
         _action: action,
         _matchedTransactionId: matchedTransactionId,
         _matchScore: hasDbMatch ? 100 : (processed?.matchScore || 0),
         _tag: tag,
+        _reconciliationType: reconciliationType,
       };
     });
-  }, [statementEntries, selectedAccountId, processedEntries, entryTags]);
+  }, [statementEntries, selectedAccountId, processedEntries, entryTags, manuallyReconciledEntries]);
 
   // Check if there are any statement entries that are NOT 'pending' TAG (for button highlight)
   // Uses ALL entries (not filtered) to ensure button is enabled regardless of current filter
@@ -770,11 +812,17 @@ const Reconciliation = () => {
     // Count incluir_lancamento entries
     const lancamentoEntries = entriesToProcess.filter(e => entryTags.get(e.id) === 'incluir_lancamento');
 
-    // Count unique transactions to update (from CL matches)
+    // Count unique transactions to update (from CL matches and manual links)
     const transactionIds = new Set<string>();
     for (const entry of conciliadoEntries) {
-      if (entry._matchedTransactionId) {
-        transactionIds.add(entry._matchedTransactionId);
+      // Check manual link first, then automatic match
+      const manualLink = manualLinks.get(entry.id);
+      const txId = (manualLink && manualLink.length > 0) 
+        ? manualLink[0] 
+        : entry._matchedTransactionId;
+      
+      if (txId) {
+        transactionIds.add(txId);
       }
     }
 
@@ -783,7 +831,7 @@ const Reconciliation = () => {
       lancamentoCount: lancamentoEntries.length,
       transactionUpdateCount: transactionIds.size,
     };
-  }, [allStatementEntriesWithAction, entryTags]);
+  }, [allStatementEntriesWithAction, entryTags, manualLinks]);
 
   // Handle Processar Conciliação - show confirmation dialog
   const handleProcessarConciliacao = () => {
@@ -827,10 +875,16 @@ const Reconciliation = () => {
         // If already reconciled in DB, skip
         if (entry.status === 'reconciled') continue;
 
+        // Check if there's a manual link for this entry (from Conciliar button)
+        const manualLink = manualLinks.get(entry.id);
+        const matchedTxId = manualLink && manualLink.length > 0 
+          ? manualLink[0] // Use the manually linked transaction
+          : entry._matchedTransactionId; // Use automatic match
+
         await updateStatusMutation.mutateAsync({
           entryId: entry.id,
           status: 'reconciled',
-          matchedTransactionId: entry._matchedTransactionId || undefined,
+          matchedTransactionId: matchedTxId || undefined,
         });
         conciliadoCount++;
       }
@@ -860,10 +914,16 @@ const Reconciliation = () => {
 
       // Update linked transactions (from conciliado entries that have matched transactions)
       // Group statement entries by matched transaction ID to handle N:N
+      // Consider both automatic matches (_matchedTransactionId) and manual links (manualLinks)
       const transactionLinkedEntries = new Map<string, StatementEntryWithAction[]>();
       
       for (const entry of conciliadoEntries) {
-        const txId = entry._matchedTransactionId;
+        // Check manual link first, then automatic match
+        const manualLink = manualLinks.get(entry.id);
+        const txId = (manualLink && manualLink.length > 0) 
+          ? manualLink[0] 
+          : entry._matchedTransactionId;
+        
         if (txId) {
           const existing = transactionLinkedEntries.get(txId) || [];
           existing.push(entry);
@@ -894,10 +954,11 @@ const Reconciliation = () => {
         transactionUpdates++;
       }
 
-      // Clear tags after processing
+      // Clear all local reconciliation state after processing
       setEntryTags(new Map());
       setManualLinks(new Map());
       setProcessedEntries(new Map());
+      setManuallyReconciledEntries(new Set());
 
       // Refetch data
       await Promise.all([refetchStatement(), refetchTransactions()]);
@@ -949,53 +1010,6 @@ const Reconciliation = () => {
 
   return (
     <MainLayout title="Conciliação" subtitle="Compare e concilie transações bancárias" onRefresh={handleRefresh}>
-      {/* Conciliar Dialog */}
-      <AlertDialog open={showConciliarDialog} onOpenChange={setShowConciliarDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirmar Conciliação</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div>
-                <p>Deseja conciliar os registros selecionados?</p>
-                <div className="mt-3 p-3 bg-muted rounded-md space-y-1">
-                  <p className="text-sm">
-                    <span className="text-muted-foreground">Extrato:</span>{" "}
-                    <span className="font-semibold">
-                      {statementTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                    </span>
-                  </p>
-                  <p className="text-sm">
-                    <span className="text-muted-foreground">Transações:</span>{" "}
-                    <span className="font-semibold">
-                      {transactionsTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                    </span>
-                  </p>
-                  <p className={cn(
-                    "text-sm font-semibold",
-                    isBalanced ? "text-green-600" : "text-yellow-600"
-                  )}>
-                    Diferença: {(statementTotal - transactionsTotal).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                  </p>
-                </div>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={executeConciliar} disabled={isProcessing}>
-              {isProcessing ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Processando...
-                </>
-              ) : (
-                'Confirmar'
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       {/* Desconciliar Dialog */}
       <AlertDialog open={showDesconciliarDialog} onOpenChange={setShowDesconciliarDialog}>
         <AlertDialogContent>
