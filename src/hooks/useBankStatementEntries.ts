@@ -190,8 +190,13 @@ export function useUpdateStatementEntryStatus() {
     }) => {
       const updateData: Record<string, unknown> = { status };
 
-      if (status === 'reconciled' && matchedTransactionId) {
+      // Save matched_transaction_id regardless of status (for linking during auto/manual reconciliation)
+      if (matchedTransactionId) {
         updateData.matched_transaction_id = matchedTransactionId;
+      }
+
+      // Set reconciliation metadata only when status is 'reconciled'
+      if (status === 'reconciled') {
         updateData.reconciled_at = new Date().toISOString();
         updateData.reconciled_by = user?.id;
       }
