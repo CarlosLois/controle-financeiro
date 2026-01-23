@@ -961,6 +961,7 @@ const Reconciliation = () => {
           entryId: entry.id,
           status: 'reconciled',
           matchedTransactionId: matchedTxId || undefined,
+          silent: true, // No individual toast
         });
         conciliadoCount++;
       }
@@ -969,7 +970,7 @@ const Reconciliation = () => {
       const lancamentoEntries = entriesToProcess.filter(e => entryTags.get(e.id) === 'incluir_lancamento');
 
       for (const entry of lancamentoEntries) {
-        // Create new transaction as 'completed' (efetivo)
+        // Create new transaction as 'completed' (efetivo) - silent mode for batch
         const newTransaction = await createTransactionMutation.mutateAsync({
           description: entry.description,
           amount: entry.amount,
@@ -977,6 +978,7 @@ const Reconciliation = () => {
           account_id: entry.account_id,
           date: entry.date,
           status: 'completed', // Efetivo
+          silent: true, // No individual toast
         });
 
         // Mark statement entry as reconciled with link to new transaction
@@ -984,6 +986,7 @@ const Reconciliation = () => {
           entryId: entry.id,
           status: 'reconciled',
           matchedTransactionId: newTransaction.id,
+          silent: true, // No individual toast
         });
         lancamentoCount++;
       }
@@ -1026,6 +1029,7 @@ const Reconciliation = () => {
           status: 'completed', // Efetivo
           date: format(maxDate, 'yyyy-MM-dd'),
           amount: totalAmount,
+          silent: true, // No individual toast
         });
         transactionUpdates++;
       }

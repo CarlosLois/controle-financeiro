@@ -183,11 +183,13 @@ export function useUpdateStatementEntryStatus() {
     mutationFn: async ({ 
       entryId, 
       status,
-      matchedTransactionId 
+      matchedTransactionId,
+      silent = false
     }: { 
       entryId: string; 
       status: 'pending' | 'reconciled' | 'ignored';
       matchedTransactionId?: string;
+      silent?: boolean;
     }) => {
       const updateData: Record<string, unknown> = { status };
 
@@ -210,7 +212,7 @@ export function useUpdateStatementEntryStatus() {
         .single();
 
       if (error) throw error;
-      return data;
+      return { ...data, _silent: silent };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bank_statement_entries'] });

@@ -63,13 +63,14 @@ export function useCreateTransaction() {
   const { user } = useAuth();
 
   return useMutation({
-    mutationFn: async (transaction: TransactionInsert) => {
+    mutationFn: async (transaction: TransactionInsert & { silent?: boolean }) => {
+      const { silent, ...transactionData } = transaction;
       const organizationId = await getOrganizationId(user!.id);
       
       const { data, error } = await supabase
         .from('transactions')
         .insert({ 
-          ...transaction, 
+          ...transactionData, 
           user_id: user!.id,
           organization_id: organizationId
         })
@@ -77,12 +78,14 @@ export function useCreateTransaction() {
         .single();
 
       if (error) throw error;
-      return data;
+      return { ...data, _silent: silent };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['bank_accounts'] });
-      toast.success('Transação criada com sucesso!');
+      if (!data._silent) {
+        toast.success('Transação criada com sucesso!');
+      }
     },
     onError: (error) => {
       toast.error('Erro ao criar transação: ' + error.message);
@@ -94,7 +97,7 @@ export function useUpdateTransaction() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ id, ...transaction }: TransactionUpdate & { id: string }) => {
+    mutationFn: async ({ id, silent, ...transaction }: TransactionUpdate & { id: string; silent?: boolean }) => {
       const { data, error } = await supabase
         .from('transactions')
         .update(transaction)
@@ -103,12 +106,14 @@ export function useUpdateTransaction() {
         .single();
 
       if (error) throw error;
-      return data;
+      return { ...data, _silent: silent };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['bank_accounts'] });
-      toast.success('Transação atualizada com sucesso!');
+      if (!data._silent) {
+        toast.success('Transação atualizada com sucesso!');
+      }
     },
     onError: (error) => {
       toast.error('Erro ao atualizar transação: ' + error.message);
