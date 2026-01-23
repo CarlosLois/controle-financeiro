@@ -8,8 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, ArrowUpRight, ArrowDownLeft, Search, Filter, Loader2 } from 'lucide-react';
-import { useTransactions, useCreateTransaction, Transaction } from '@/hooks/useTransactions';
+import { Plus, ArrowUpRight, ArrowDownLeft, Search, Filter, Loader2, Pencil } from 'lucide-react';
+import { useTransactions, useCreateTransaction, useUpdateTransaction, Transaction } from '@/hooks/useTransactions';
 import { useCategories } from '@/hooks/useCategories';
 import { useBankAccounts } from '@/hooks/useBankAccounts';
 import { format } from 'date-fns';
@@ -22,8 +22,10 @@ export default function Transactions() {
   const { data: categories = [] } = useCategories();
   const { data: accounts = [] } = useBankAccounts();
   const createTransaction = useCreateTransaction();
+  const updateTransaction = useUpdateTransaction();
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -59,7 +61,7 @@ export default function Transactions() {
     
     setConfirmDialog({
       open: true,
-      type: 'create',
+      type: editingTransaction ? 'update' : 'create',
       itemName: description,
       onConfirm: () => confirmSaveTransaction(formData),
     });
@@ -77,8 +79,25 @@ export default function Transactions() {
       is_recurring: false,
     };
 
-    await createTransaction.mutateAsync(transactionData);
+    if (editingTransaction) {
+      await updateTransaction.mutateAsync({ id: editingTransaction.id, ...transactionData });
+    } else {
+      await createTransaction.mutateAsync(transactionData);
+    }
     setIsDialogOpen(false);
+    setEditingTransaction(null);
+  };
+
+  const handleEditTransaction = (transaction: Transaction) => {
+    setEditingTransaction(transaction);
+    setIsDialogOpen(true);
+  };
+
+  const handleCloseDialog = (open: boolean) => {
+    setIsDialogOpen(open);
+    if (!open) {
+      setEditingTransaction(null);
+    }
   };
 
   const filteredTransactions = transactions.filter(t => {
@@ -96,7 +115,7 @@ export default function Transactions() {
     const account = getAccount(transaction.account_id);
 
     return (
-      <div className="flex items-center gap-4 p-4 rounded-lg hover:bg-muted/50 transition-colors border-b border-border last:border-0">
+      <div className="flex items-center gap-4 p-4 rounded-lg hover:bg-muted/50 transition-colors border-b border-border last:border-0 group">
         <div className={cn(
           "h-10 w-10 rounded-lg flex items-center justify-center shrink-0",
           transaction.type === 'income' ? "bg-success/10" : "bg-destructive/10"
@@ -134,6 +153,15 @@ export default function Transactions() {
             {transaction.status === 'completed' ? 'Efetivado' : 'Previsto'}
           </Badge>
         </div>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8"
+          onClick={() => handleEditTransaction(transaction)}
+        >
+          <Pencil className="h-4 w-4" />
+        </Button>
       </div>
     );
   };
@@ -153,7 +181,7 @@ export default function Transactions() {
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-end">
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <Dialog open={isDialogOpen} onOpenChange={handleCloseDialog}>
             <DialogTrigger asChild>
               <Button className="gap-2" disabled={accounts.length === 0}>
                 <Plus className="h-4 w-4" />
@@ -162,21 +190,35 @@ export default function Transactions() {
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Nova Transação</DialogTitle>
+                <DialogTitle>{editingTransaction ? 'Editar Transação' : 'Nova Transação'}</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleSaveTransaction} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="description">Descrição</Label>
-                  <Input id="description" name="description" placeholder="Ex: Supermercado" required />
+                  <Input 
+                    id="description" 
+                    name="description" 
+                    placeholder="Ex: Supermercado" 
+                    defaultValue={editingTransaction?.description || ''} 
+                    required 
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="amount">Valor</Label>
-                    <Input id="amount" name="amount" type="number" step="0.01" placeholder="0.00" required />
+                    <Input 
+                      id="amount" 
+                      name="amount" 
+                      type="number" 
+                      step="0.01" 
+                      placeholder="0.00" 
+                      defaultValue={editingTransaction?.amount || ''} 
+                      required 
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="type">Tipo</Label>
-                    <Select name="type" defaultValue="expense">
+                    <Select name="type" defaultValue={editingTransaction?.type || 'expense'}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -190,7 +232,7 @@ export default function Transactions() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="category">Categoria</Label>
-                  <Select name="category">
+                  <Select name="category" defaultValue={editingTransaction?.category_id || undefined}>
                     <SelectTrigger>
                       <SelectValue placeholder="Selecione uma categoria" />
                     </SelectTrigger>
@@ -203,7 +245,7 @@ export default function Transactions() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="account">Conta</Label>
-                  <Select name="account" defaultValue={accounts[0]?.id}>
+                  <Select name="account" defaultValue={editingTransaction?.account_id || accounts[0]?.id}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -217,11 +259,17 @@ export default function Transactions() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="date">Data</Label>
-                    <Input id="date" name="date" type="date" defaultValue={new Date().toISOString().split('T')[0]} required />
+                    <Input 
+                      id="date" 
+                      name="date" 
+                      type="date" 
+                      defaultValue={editingTransaction?.date || new Date().toISOString().split('T')[0]} 
+                      required 
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="status">Status</Label>
-                    <Select name="status" defaultValue="completed">
+                    <Select name="status" defaultValue={editingTransaction?.status || 'completed'}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -232,11 +280,11 @@ export default function Transactions() {
                     </Select>
                   </div>
                 </div>
-                <Button type="submit" className="w-full" disabled={createTransaction.isPending}>
-                  {createTransaction.isPending ? (
+                <Button type="submit" className="w-full" disabled={createTransaction.isPending || updateTransaction.isPending}>
+                  {(createTransaction.isPending || updateTransaction.isPending) ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : null}
-                  Criar Transação
+                  {editingTransaction ? 'Salvar Alterações' : 'Criar Transação'}
                 </Button>
               </form>
             </DialogContent>
