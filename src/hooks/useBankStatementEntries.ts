@@ -59,11 +59,12 @@ export function usePendingStatementEntries(accountId?: string) {
 
   return useQuery({
     // Include user id to avoid leaking cached data across logins
-    queryKey: ['bank_statement_entries', 'all', user?.id, accountId],
+    queryKey: ['bank_statement_entries', 'pending', user?.id, accountId],
     queryFn: async () => {
       let query = supabase
         .from('bank_statement_entries')
         .select('*')
+        .neq('status', 'reconciled') // Exclude reconciled entries
         .order('date', { ascending: false });
 
       if (accountId) {
